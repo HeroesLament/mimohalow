@@ -2,14 +2,23 @@ defmodule MimoHalow.Model.Mimo.Coded do
   @moduledoc """
   Coded packet error rate of the 2x2 schemes: one LDPC n = 648 R = 1/2
   codeword per packet, padded to whole channel uses, pseudo-random bit
-  interleaving, slots spread over the 52 data subcarriers of a
-  frequency-selective 2x2 OFDM channel (`OfdmChannel`), perfect channel
-  knowledge at the receiver and, for the precoded schemes, the transmitter.
-  Equal bits per channel use as `Sim`. SNR = 1 / sigma2 per receive antenna,
-  total transmit power 1.
+  interleaving, slots spread over the 52 data subcarriers. Equal bits per
+  channel use as `Sim`. SNR = 1 / sigma2 per receive antenna, total transmit
+  power 1.
+
+  Channel options (`chopts`):
+    * none: a fresh `OfdmChannel` Rayleigh draw per packet (`:ntaps`, `:rms`);
+    * `hs: [2x2]`: a fixed channel per data subcarrier (a measured trace);
+    * `hs_tx: [2x2]`: the channel the transmitter computes its precoder from
+      (stale explicit feedback); defaults to the true channel.
+
+  The receiver always knows the channel it actually sees (from the LTFs):
+  the precoded schemes are received by MRC (one stream) or MMSE (two
+  streams) on the effective channel `H V`, which is exact when `hs_tx`
+  equals `hs`.
   """
   alias MimoHalow.Model.{Cx, Demap, Ldpc, Mat2, Qam}
-  alias MimoHalow.Model.Mimo.{Channel, Detect, OfdmChannel, Precode, Sim, Stbc}
+  alias MimoHalow.Model.Mimo.{Channel, Detect, OfdmChannel, Sim, Stbc}
 
   @r 1 / :math.sqrt(2)
   @clamp 50.0
@@ -38,9 +47,15 @@ defmodule MimoHalow.Model.Mimo.Coded do
     {pad, rng} = Channel.bits(rng, slots * bits - code.n)
     perm = perm(slots * bits)
     tx_bits = permute(cw ++ pad, perm)
-    {hs, rng} = OfdmChannel.draw(rng, sc, chopts)
-    hs = List.to_tuple(hs)
-    {llrs, rng} = run(scheme, tx_bits, hs, sigma2, bits, rng)
+
+    {hs, rng} =
+      case Keyword.fetch(chopts, :hs) do
+        {:ok, hs} -> {hs, rng}
+        :error -> OfdmChannel.draw(rng, sc, chopts)
+      end
+
+    hs_tx = Keyword.get(chopts, :hs_tx, hs)
+    {llrs, rng} = run(scheme, tx_bits, {List.to_tuple(hs), List.to_tuple(hs_tx)}, sigma2, bits, rng)
     llrs = llrs |> unpermute(perm) |> Enum.take(code.n) |> Enum.map(&clamp/1)
     %{info: got, ok: ok, iters: n_it} = Ldpc.decode(llrs, [], code)
     {ok and got == info, n_it, rng}
@@ -53,22 +68,21 @@ defmodule MimoHalow.Model.Mimo.Coded do
 
   defp h_at(hs, i), do: elem(hs, rem(i, tuple_size(hs)))
 
-  defp run(scheme, tx_bits, hs, sigma2, bits, rng) when scheme in [:siso, :mrc_1x2, :eigen_1ss] do
+  defp run(scheme, tx_bits, {hs, hts}, sigma2, bits, rng) when scheme in [:siso, :mrc_1x2, :eigen_1ss] do
     {m, _} = Sim.mods(bits)
 
     tx_bits
     |> Enum.chunk_every(bits)
     |> Enum.with_index()
     |> Enum.flat_map_reduce(rng, fn {b, i}, rng ->
-      h = h_at(hs, i)
       x = Qam.point(b, m)
-      {{n1, n2}, rng} = Channel.noise2(rng, sigma2)
-      {e, nv} = one_ss(scheme, h, x, {n1, n2}, sigma2)
+      {n, rng} = Channel.noise2(rng, sigma2)
+      {e, nv} = one_ss(scheme, h_at(hs, i), h_at(hts, i), x, n, sigma2)
       {Demap.llrs(e, nv, m), rng}
     end)
   end
 
-  defp run(:alamouti, tx_bits, hs, sigma2, bits, rng) do
+  defp run(:alamouti, tx_bits, {hs, _}, sigma2, bits, rng) do
     {m, _} = Sim.mods(bits)
 
     tx_bits
@@ -87,26 +101,25 @@ defmodule MimoHalow.Model.Mimo.Coded do
     end)
   end
 
-  defp run(scheme, tx_bits, hs, sigma2, bits, rng) when scheme in [:sm_mmse, :sm_ml, :svd_2ss] do
+  defp run(scheme, tx_bits, {hs, hts}, sigma2, bits, rng) when scheme in [:sm_mmse, :sm_ml, :svd_2ss] do
     {_, m} = Sim.mods(bits)
 
     tx_bits
     |> Enum.chunk_every(bits)
     |> Enum.with_index()
     |> Enum.flat_map_reduce(rng, fn {b, i}, rng ->
-      h = h_at(hs, i)
       [p1, p2] = Qam.map(b, m)
       {n, rng} = Channel.noise2(rng, sigma2)
-      {two_ss(scheme, h, {p1, p2}, n, sigma2, m), rng}
+      {two_ss(scheme, h_at(hs, i), h_at(hts, i), {p1, p2}, n, sigma2, m), rng}
     end)
   end
 
-  defp one_ss(:siso, {{h, _}, _}, x, {n, _}, sigma2) do
+  defp one_ss(:siso, {{h, _}, _}, _ht, x, {n, _}, sigma2) do
     y = Cx.add(Cx.mul(h, x), n)
     {Cx.div(y, h), sigma2 / Cx.abs2(h)}
   end
 
-  defp one_ss(:mrc_1x2, {{h1, _}, {h2, _}}, x, {n1, n2}, sigma2) do
+  defp one_ss(:mrc_1x2, {{h1, _}, {h2, _}}, _ht, x, {n1, n2}, sigma2) do
     y1 = Cx.add(Cx.mul(h1, x), n1)
     y2 = Cx.add(Cx.mul(h2, x), n2)
     g = Cx.abs2(h1) + Cx.abs2(h2)
@@ -114,18 +127,27 @@ defmodule MimoHalow.Model.Mimo.Coded do
     {Cx.scale(z, 1 / g), sigma2 / g}
   end
 
-  defp one_ss(:eigen_1ss, h, x, n, sigma2) do
-    y = Mat2.vadd(Mat2.mulv(h, Precode.eigen_1ss_tx(h, x)), n)
-    Precode.eigen_1ss_rx(h, y, sigma2)
+  # Precoder from the transmitter's channel; MRC on the effective channel.
+  defp one_ss(:eigen_1ss, h, ht, x, n, sigma2) do
+    {_, _, v} = Mat2.svd(ht)
+    v1 = Mat2.col(v, 0)
+    heff = Mat2.mulv(h, v1)
+    {a, b} = heff
+    y = Mat2.vadd({Cx.mul(a, x), Cx.mul(b, x)}, n)
+    g = Mat2.vnorm2(heff)
+    {Cx.scale(Mat2.vdot(heff, y), 1 / g), sigma2 / g}
   end
 
-  defp two_ss(:svd_2ss, h, p, n, sigma2, m) do
-    y = Mat2.vadd(Mat2.mulv(h, Precode.svd_2ss_tx(h, p)), n)
-    {{e1, e2}, {v1, v2}} = Precode.svd_2ss_rx(h, y, sigma2)
+  # Precoder from the transmitter's channel; MMSE on the effective channel.
+  defp two_ss(:svd_2ss, h, ht, p, n, sigma2, m) do
+    {_, _, v} = Mat2.svd(ht)
+    heff = scale(Mat2.mul(h, v), @r)
+    y = Mat2.vadd(Mat2.mulv(heff, p), n)
+    {{e1, e2}, {v1, v2}} = Detect.mmse(heff, y, sigma2)
     Demap.llrs(e1, v1, m) ++ Demap.llrs(e2, v2, m)
   end
 
-  defp two_ss(scheme, h, p, n, sigma2, m) do
+  defp two_ss(scheme, h, _ht, p, n, sigma2, m) do
     heff = scale(h, @r)
     y = Mat2.vadd(Mat2.mulv(heff, p), n)
 
@@ -149,7 +171,12 @@ defmodule MimoHalow.Model.Mimo.Coded do
 
     case :persistent_term.get(key, nil) do
       nil ->
-        {p, _} = Enum.map_reduce(0..(n - 1), Channel.rng(0xC0DE + n), fn i, r -> {u, r} = :rand.uniform_s(r); {{u, i}, r} end)
+        {p, _} =
+          Enum.map_reduce(0..(n - 1), Channel.rng(0xC0DE + n), fn i, r ->
+            {u, r} = :rand.uniform_s(r)
+            {{u, i}, r}
+          end)
+
         p = p |> Enum.sort() |> Enum.map(&elem(&1, 1)) |> List.to_tuple()
         :persistent_term.put(key, p)
         p

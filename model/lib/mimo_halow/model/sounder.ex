@@ -199,6 +199,25 @@ defmodule MimoHalow.Model.Sounder do
     }
   end
 
+  @doc "The clean periods of an analysis (the `summary/1` burst rejection)."
+  def clean_periods(%{periods: ps}) do
+    stats = Enum.map(ps, &period_stats/1)
+    med = median(Enum.map(stats, &mean(List.flatten(&1.snr))))
+    for {p, st} <- Enum.zip(ps, stats), mean(List.flatten(st.snr)) >= med - 6.0, do: p
+  end
+
+  @doc "Mean 2x2 H per tone over the clean periods: `%{tone => H}`."
+  def mean_h(a) do
+    ps = clean_periods(a)
+    n = length(ps)
+
+    for k <- @tones, into: %{} do
+      hs = Enum.map(ps, &Map.fetch!(&1.h, k))
+      e = fn rx, tx -> hs |> Enum.map(&entry(&1, rx, tx)) |> Cx.sum() |> Cx.scale(1 / n) end
+      {k, {{e.(0, 0), e.(0, 1)}, {e.(1, 0), e.(1, 1)}}}
+    end
+  end
+
   defp period_stats(p) do
     power =
       for rx <- 0..1 do
