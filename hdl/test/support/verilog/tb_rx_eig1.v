@@ -2,7 +2,8 @@
 // (2 MS/s on 32 MHz). stim.txt: "<n> <emin>", then n lines "<i0> <q0> <i1>
 // <q1>" (hex12). out.txt: per Cpe output "<j> <d> <re hex27> <im hex27> <g>
 // <theta>", per sync "D <td> <ts_off>", per SIG "G <ok> <discard>
-// <nsym_total> <bits hex48>", then "S <sync> <det> <drop> <overrun>".
+// <nsym_total> <bits hex48>", per PSDU byte "B <byte> <last>", then
+// "S <sync> <det> <drop> <overrun> <v_overflow> <d_early>".
 `timescale 1ns/1ps
 module tb;
   reg clk = 0, enable = 0, valid = 0;
@@ -23,6 +24,9 @@ module tb;
   wire [47:0] sig_bits;
   wire [3:0] f_mcs;
   wire [8:0] f_length;
+  wire b_valid, b_last, v_overflow;
+  wire [7:0] b_byte, d_early;
+  wire [15:0] b_len;
 
   eig1 dut (.clk(clk), .enable(enable), .valid(valid), .i0(i0), .q0(q0), .i1(i1), .q1(q1),
     .emin(emin),
@@ -31,7 +35,8 @@ module tb;
     .scale(scale), .noise(noise), .e_valid(e_valid), .e_i(e_i), .e_q(e_q), .e_g(e_g),
     .e_d(e_d), .e_j(e_j), .e_last(e_last), .e_theta(e_theta),
     .sig_done(sig_done), .sig_ok(sig_ok), .sig_discard(sig_discard), .nsym_total(nsym_total),
-    .sig_bits(sig_bits), .f_mcs(f_mcs), .f_length(f_length), .f_aggr(f_aggr), .f_ndata(f_ndata));
+    .sig_bits(sig_bits), .f_mcs(f_mcs), .f_length(f_length), .f_aggr(f_aggr), .f_ndata(f_ndata),
+    .b_valid(b_valid), .b_byte(b_byte), .b_last(b_last), .b_len(b_len), .v_overflow(v_overflow), .d_early(d_early));
 
   integer fi, fo, n, t, k, rc, x;
   reg [11:0] a, b, c, d;
@@ -40,6 +45,7 @@ module tb;
     #5 clk = 1; #5 clk = 0;
     if (done) $fdisplay(fo, "D %0d %0d", sync_td, ts_off);
     if (sig_done) $fdisplay(fo, "G %0d %0d %0d %h", sig_ok, sig_discard, nsym_total, sig_bits);
+    if (b_valid) $fdisplay(fo, "B %0d %0d", b_byte, b_last);
     if (e_valid) $fdisplay(fo, "%0d %0d %h %h %0d %0d", e_j, e_d, e_i, e_q, e_g, e_theta);
   end endtask
 
@@ -58,7 +64,7 @@ module tb;
       for (k = 0; k < 15; k = k + 1) tick;
     end
     for (k = 0; k < 3000; k = k + 1) tick;
-    $fdisplay(fo, "S %0d %0d %0d %0d", sync_count, det_count, drop_count, overrun);
+    $fdisplay(fo, "S %0d %0d %0d %0d %0d %0d", sync_count, det_count, drop_count, overrun, v_overflow, d_early);
     $fclose(fo);
     $finish;
   end

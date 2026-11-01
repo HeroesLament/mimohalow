@@ -121,7 +121,7 @@ defmodule MimoHalow.Hw.Rx.Eig1Test do
 
   @tag :iverilog
   @tag timeout: 1_800_000
-  test "eig1 from samples: steered S1G PPDUs through 2x2 multipath + CFO -> RTL (SIG loop closed) -> PSDU" do
+  test "eig1 from samples: steered S1G PPDUs through 2x2 multipath + CFO -> RTL -> PSDU bytes" do
     cases = [{4, 80, 25.0, 0.0041, 21}, {7, 100, 31.0, -0.0067, 22}]
     frames = Enum.map(cases, &frame/1)
     # warm-up for the detector's DC tracker (1024 samples blanked)
@@ -135,10 +135,20 @@ defmodule MimoHalow.Hw.Rx.Eig1Test do
 
     {stats, rest} = Enum.split_with(lines, &String.starts_with?(&1, "S "))
     {syncs, rest} = Enum.split_with(rest, &String.starts_with?(&1, "D "))
-    {sigs, outs} = Enum.split_with(rest, &String.starts_with?(&1, "G "))
+    {sigs, rest} = Enum.split_with(rest, &String.starts_with?(&1, "G "))
+    {bytes, outs} = Enum.split_with(rest, &String.starts_with?(&1, "B "))
     ["S " <> s] = stats
-    [nsync, ndet, drop, ovr] = s |> String.split() |> Enum.map(&String.to_integer/1)
-    assert {nsync, drop, ovr} == {length(cases), 0, 0}, "syncs #{inspect(syncs)}, dets #{ndet}"
+    [nsync, ndet, drop, ovr, vovf, early] = s |> String.split() |> Enum.map(&String.to_integer/1)
+    assert {nsync, drop, ovr, vovf, early} == {length(cases), 0, 0, 0, 0}, "syncs #{inspect(syncs)}, dets #{ndet}"
+
+    # The RTL's own PSDU bytes, split at b_last.
+    rtl_psdus =
+      bytes
+      |> Enum.map(fn "B " <> b -> b |> String.split() |> Enum.map(&String.to_integer/1) end)
+      |> Enum.chunk_while([], fn [v, l], acc -> if l == 1, do: {:cont, Enum.reverse([v | acc]), []}, else: {:cont, [v | acc]} end, fn acc -> {:cont, acc} end)
+      |> Enum.map(&:binary.list_to_bin/1)
+
+    assert rtl_psdus == Enum.map(frames, fn {_, p, _, _} -> p end)
 
     rows =
       Enum.map(outs, fn l ->

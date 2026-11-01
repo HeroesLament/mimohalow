@@ -6,6 +6,7 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
       chain 0: StfDetector -> LtfSync (sync) -> SymFeed -> Fft64 --+
       chain 1: StfDetector (DC removal only) -> SymFeed -> Fft64 --+-> BinMerge
                -> MrcCombiner -> Cpe -> S1gSigDec (nsym back to both SymFeeds)
+                                     -> DataDemap -> Viterbi -> ByteOut (PSDU bytes)
 
   The OcuSync blocks are reused as is: S1G_SHORT's STF / LTF1 have the
   11a L-STF / L-LTF layout. Both `SymFeed`s take chain 0's sync, so the two
@@ -58,6 +59,12 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   output :f_length, 9
   output :f_aggr, 1
   output :f_ndata, 11
+  output :b_valid, 1
+  output :b_byte, 8
+  output :b_last, 1
+  output :b_len, 16
+  output :v_overflow, 1
+  output :d_early, 8
 
   # chain 0 detector / sync
   wire :det_pr, 32
@@ -135,6 +142,15 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   wire :fsm, 1
   wire :fid, 9
   wire :fnsts, 2
+  wire :dpv, 1
+  wire :dpa, 6
+  wire :dpb, 6
+  wire :dpf, 1
+  wire :dpl, 1
+  wire :dq, 5
+  wire :vv, 1
+  wire :vb, 1
+  wire :vl, 1
 
   comb do
     ztag0 = {zf0, zs0}
@@ -200,4 +216,18 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
     sig_done: :sig_done, sig_ok: :sig_ok, discard: :sig_discard, nsym_total: :nsym_total,
     sig_bits: :sig_bits, q: :sq, f_mcs: :f_mcs, f_length: :f_length, f_aggr: :f_aggr,
     f_smoothing: :fsm, f_id: :fid, f_nsts: :fnsts, f_ndata: :f_ndata
+
+  instance :dmp, MimoHalow.Hw.Rx.DataDemap,
+    clk: :clk, enable: :enable, e_valid: :pv, e_i: :e_i, e_q: :pq, e_g: :e_g, e_d: :pd, e_j: :pj,
+    sig_done: :sig_done, sig_discard: :sig_discard, f_mcs: :f_mcs, f_ndata: :f_ndata,
+    p_valid: :dpv, p_a: :dpa, p_b: :dpb, p_first: :dpf, p_last: :dpl, q: :dq, early: :d_early
+
+  instance :vit, MimoHalow.Hw.Rx.Viterbi,
+    clk: :clk, enable: :enable, in_valid: :dpv, in_a: :dpa, in_b: :dpb, in_first: :dpf, in_last: :dpl,
+    out_valid: :vv, out_bit: :vb, out_last: :vl, overflow: :v_overflow
+
+  instance :bout, MimoHalow.Hw.Rx.ByteOut,
+    clk: :clk, enable: :enable, v_valid: :vv, v_bit: :vb, sig_done: :sig_done, sig_discard: :sig_discard,
+    f_mcs: :f_mcs, f_length: :f_length, f_aggr: :f_aggr, f_ndata: :f_ndata,
+    b_valid: :b_valid, b_byte: :b_byte, b_last: :b_last, b_len: :b_len
 end
