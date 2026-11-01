@@ -121,21 +121,21 @@ defmodule MimoHalow.Hw.Rx.Eig1Test do
 
   @tag :iverilog
   @tag timeout: 1_800_000
-  test "eig1 from samples: steered S1G PPDUs through 2x2 multipath + CFO -> RTL -> PSDU" do
+  test "eig1 from samples: steered S1G PPDUs through 2x2 multipath + CFO -> RTL (SIG loop closed) -> PSDU" do
     cases = [{4, 80, 25.0, 0.0041, 21}, {7, 100, 31.0, -0.0067, 22}]
     frames = Enum.map(cases, &frame/1)
     # warm-up for the detector's DC tracker (1024 samples blanked)
     warm = List.duplicate({0, 0}, 1100)
     s0 = warm ++ Enum.flat_map(frames, fn {_, _, _, [y0, _]} -> y0 end)
     s1 = warm ++ Enum.flat_map(frames, fn {_, _, _, [_, y1]} -> y1 end)
-    nsyms = Enum.map(frames, fn {_, _, t, _} -> 4 + t.nsym end)
 
     stim = Enum.zip_with(s0, s1, fn {a, b}, {c, d} -> "#{Cosim.hex(a, 12)} #{Cosim.hex(b, 12)} #{Cosim.hex(c, 12)} #{Cosim.hex(d, 12)}" end)
-    header = Enum.join([length(stim), 20 * 64, length(nsyms) | nsyms], " ")
+    header = "#{length(stim)} #{20 * 64}"
     lines = Cosim.run([MimoHalow.Hw.Rx.Eig1], "tb_rx_eig1.v", stim, header: header)
 
     {stats, rest} = Enum.split_with(lines, &String.starts_with?(&1, "S "))
-    {syncs, outs} = Enum.split_with(rest, &String.starts_with?(&1, "D "))
+    {syncs, rest} = Enum.split_with(rest, &String.starts_with?(&1, "D "))
+    {sigs, outs} = Enum.split_with(rest, &String.starts_with?(&1, "G "))
     ["S " <> s] = stats
     [nsync, ndet, drop, ovr] = s |> String.split() |> Enum.map(&String.to_integer/1)
     assert {nsync, drop, ovr} == {length(cases), 0, 0}, "syncs #{inspect(syncs)}, dets #{ndet}"
@@ -145,6 +145,10 @@ defmodule MimoHalow.Hw.Rx.Eig1Test do
         [j, d, re, im, g, _th] = String.split(l)
         {String.to_integer(j), String.to_integer(d), Cosim.shex(re, 27), Cosim.shex(im, 27), String.to_integer(g)}
       end)
+
+    # The RTL SIG decoder closed the feeder loop: one good SIG per PPDU, nsym = 4 + Ndata.
+    assert Enum.map(sigs, fn "G " <> g -> g |> String.split() |> Enum.take(3) |> Enum.map(&String.to_integer/1) end) ==
+             Enum.map(frames, fn {_, _, t, _} -> [1, 0, 4 + t.nsym] end)
 
     pks = packets(rows)
     assert length(pks) == length(cases)

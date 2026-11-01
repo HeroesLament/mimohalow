@@ -5,7 +5,7 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
 
       chain 0: StfDetector -> LtfSync (sync) -> SymFeed -> Fft64 --+
       chain 1: StfDetector (DC removal only) -> SymFeed -> Fft64 --+-> BinMerge
-               -> MrcCombiner -> Cpe
+               -> MrcCombiner -> Cpe -> S1gSigDec (nsym back to both SymFeeds)
 
   The OcuSync blocks are reused as is: S1G_SHORT's STF / LTF1 have the
   11a L-STF / L-LTF layout. Both `SymFeed`s take chain 0's sync, so the two
@@ -13,8 +13,9 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   (BinMerge replays 128 bins per 64-sample window at 4 cycles per bin); 16
   at the 32 MHz clock.
 
-  `set_nsym` / `nsym` (symbols to feed per PPDU, LTF and SIG included) come
-  from the SIG decision; until then SymFeed feeds its default.
+  `S1gSigDec` closes the loop: on `sig_done` both SymFeeds take
+  `nsym_total` (LTF x2 + SIG x2 + DATA, or 4 on a discard), so the feeder
+  stops after the PPDU and is free for the next one.
   """
 
   use Hw.Component
@@ -28,8 +29,6 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   input :i1, 12
   input :q1, 12
   input :emin, 32
-  input :set_nsym, 1
-  input :nsym, 11
 
   output :detect, 1
   output :det_count, 16
@@ -50,6 +49,15 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   output :e_j, 11
   output :e_last, 1
   output :e_theta, 16
+  output :sig_done, 1
+  output :sig_ok, 1
+  output :sig_discard, 1
+  output :nsym_total, 11
+  output :sig_bits, 48
+  output :f_mcs, 4
+  output :f_length, 9
+  output :f_aggr, 1
+  output :f_ndata, 11
 
   # chain 0 detector / sync
   wire :det_pr, 32
@@ -119,10 +127,22 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   wire :cst, 1
   wire :clast, 1
   wire :cpil, 1
+  wire :pv, 1
+  wire :pq, 27
+  wire :pd, 6
+  wire :pj, 11
+  wire :sq, 5
+  wire :fsm, 1
+  wire :fid, 9
+  wire :fnsts, 2
 
   comb do
     ztag0 = {zf0, zs0}
     ztag1 = {zf1, zs1}
+    e_valid = pv
+    e_q = pq
+    e_d = pd
+    e_j = pj
   end
 
   instance :stf0, Hw.StfDetector,
@@ -143,12 +163,12 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
 
   instance :feed0, Hw.SymFeed,
     clk: :clk, enable: :enable, y_valid: :yv0, y_i: :yi0, y_q: :yq0,
-    sync_done: :done, sync_td: :sync_td, ts_off: :ts_off, dphi: :dphi, set_nsym: :set_nsym, nsym: :nsym,
+    sync_done: :done, sync_td: :sync_td, ts_off: :ts_off, dphi: :dphi, set_nsym: :sig_done, nsym: :nsym_total,
     z_valid: :zv0, z_i: :zi0, z_q: :zq0, z_sym: :zs0, z_flush: :zf0, busy: :fb0, drop_count: :drop_count
 
   instance :feed1, Hw.SymFeed,
     clk: :clk, enable: :enable, y_valid: :yv1, y_i: :yi1, y_q: :yq1,
-    sync_done: :done, sync_td: :sync_td, ts_off: :ts_off, dphi: :dphi, set_nsym: :set_nsym, nsym: :nsym,
+    sync_done: :done, sync_td: :sync_td, ts_off: :ts_off, dphi: :dphi, set_nsym: :sig_done, nsym: :nsym_total,
     z_valid: :zv1, z_i: :zi1, z_q: :zq1, z_sym: :zs1, z_flush: :zf1, busy: :fb1, drop_count: :drop1
 
   instance :fft0, Hw.Fft64,
@@ -173,5 +193,11 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   instance :cpe, MimoHalow.Hw.Rx.Cpe,
     clk: :clk, enable: :enable, in_valid: :cv, in_i: :ci, in_q: :cq, in_g: :cg, in_d: :cd, in_j: :cj,
     in_last: :clast, in_pilot: :cpil,
-    e_valid: :e_valid, e_i: :e_i, e_q: :e_q, e_g: :e_g, e_d: :e_d, e_j: :e_j, e_last: :e_last, e_theta: :e_theta
+    e_valid: :pv, e_i: :e_i, e_q: :pq, e_g: :e_g, e_d: :pd, e_j: :pj, e_last: :e_last, e_theta: :e_theta
+
+  instance :sigdec, MimoHalow.Hw.Rx.S1gSigDec,
+    clk: :clk, enable: :enable, e_valid: :pv, e_q: :pq, e_d: :pd, e_j: :pj,
+    sig_done: :sig_done, sig_ok: :sig_ok, discard: :sig_discard, nsym_total: :nsym_total,
+    sig_bits: :sig_bits, q: :sq, f_mcs: :f_mcs, f_length: :f_length, f_aggr: :f_aggr,
+    f_smoothing: :fsm, f_id: :fid, f_nsts: :fnsts, f_ndata: :f_ndata
 end
