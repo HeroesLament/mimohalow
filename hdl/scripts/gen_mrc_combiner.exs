@@ -9,9 +9,9 @@
 #
 # Spec: MimoHalow.Model.Fixed.Mrc. Change both together.
 #
-# Tone plan: the 64-point 11a/n layout (used -26..26 less DC, pilots
-# +-7, +-21, the 11a L-LTF signs) as a PLACEHOLDER until the S1G tone plan is
-# pinned from the standard text; it is an input to this script only.
+# Tone plan: S1G 2 MHz (64-point; used +-1..+-28, pilots +-7, +-21, the
+# 56-tone S1G/HT-LTF signs), taken from MimoHalow.Model.S1g.Params so the
+# RTL ROM and the model share one source.
 import Bitwise
 
 defmodule G do
@@ -62,14 +62,13 @@ defmodule G do
   def merge(parts), do: {Enum.flat_map(parts, &elem(&1, 0)), Enum.flat_map(parts, &elem(&1, 1))}
 end
 
-# --- tone plan (placeholder, see header) ----------------------------------------
-pilot_k = [-21, -7, 7, 21]
-used_k = for k <- -26..26, k != 0, do: k
-data_k = for k <- used_k, k not in pilot_k, do: k
-bin = fn k -> rem(k + 64, 64) end
-ltf = [1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1,
-       0, 1, -1, -1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, 1, 1, 1, 1]
-ltf_k = -26..26 |> Enum.zip(ltf) |> Map.new()
+# --- tone plan (S1G 2 MHz, see header) -------------------------------------------
+alias MimoHalow.Model.S1g.Params
+pilot_k = Params.pilots(2)
+used_k = Params.used(2)
+data_k = Params.data(2)
+bin = fn k -> Params.bin(k, 2) end
+ltf_k = Params.ltf(2)
 bitrev6 = fn i -> for(b <- 0..5, reduce: 0, do: (acc -> acc ||| (i >>> b &&& 1) <<< (5 - b))) end
 # The last data bin in FFT output (bit-reversed) order carries e_last.
 fft_order = for p <- 0..63, do: bitrev6.(p)

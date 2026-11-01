@@ -220,35 +220,47 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
     i_dix = 0
     i_dlast = 0
     case i_bin do
-      38 ->
+      36 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
         i_dix = 0
         i_dlast = 0
-      39 ->
+      37 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
         i_dix = 1
         i_dlast = 0
+      38 ->
+        i_used = 1
+        i_sneg = 0
+        i_data = 1
+        i_dix = 2
+        i_dlast = 0
+      39 ->
+        i_used = 1
+        i_sneg = 0
+        i_data = 1
+        i_dix = 3
+        i_dlast = 0
       40 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 2
+        i_dix = 4
         i_dlast = 0
       41 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 3
+        i_dix = 5
         i_dlast = 0
       42 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 4
+        i_dix = 6
         i_dlast = 0
       43 ->
         i_used = 1
@@ -257,79 +269,79 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 5
+        i_dix = 7
         i_dlast = 0
       45 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 6
+        i_dix = 8
         i_dlast = 0
       46 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 7
+        i_dix = 9
         i_dlast = 0
       47 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 8
+        i_dix = 10
         i_dlast = 0
       48 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 9
+        i_dix = 11
         i_dlast = 0
       49 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 10
+        i_dix = 12
         i_dlast = 0
       50 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 11
+        i_dix = 13
         i_dlast = 0
       51 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 12
+        i_dix = 14
         i_dlast = 0
       52 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 13
+        i_dix = 15
         i_dlast = 0
       53 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 14
+        i_dix = 16
         i_dlast = 0
       54 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 15
+        i_dix = 17
         i_dlast = 0
       55 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 16
+        i_dix = 18
         i_dlast = 0
       56 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 17
+        i_dix = 19
         i_dlast = 0
       57 ->
         i_used = 1
@@ -338,73 +350,73 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 18
+        i_dix = 20
         i_dlast = 0
       59 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 19
+        i_dix = 21
         i_dlast = 0
       60 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 20
+        i_dix = 22
         i_dlast = 0
       61 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 21
+        i_dix = 23
         i_dlast = 0
       62 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 22
+        i_dix = 24
         i_dlast = 0
       63 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 23
+        i_dix = 25
         i_dlast = 1
       1 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 24
+        i_dix = 26
         i_dlast = 0
       2 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 25
+        i_dix = 27
         i_dlast = 0
       3 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 26
+        i_dix = 28
         i_dlast = 0
       4 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 27
+        i_dix = 29
         i_dlast = 0
       5 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 28
+        i_dix = 30
         i_dlast = 0
       6 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 29
+        i_dix = 31
         i_dlast = 0
       7 ->
         i_used = 1
@@ -413,79 +425,79 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 30
+        i_dix = 32
         i_dlast = 0
       9 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 31
+        i_dix = 33
         i_dlast = 0
       10 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 32
+        i_dix = 34
         i_dlast = 0
       11 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 33
+        i_dix = 35
         i_dlast = 0
       12 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 34
+        i_dix = 36
         i_dlast = 0
       13 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 35
+        i_dix = 37
         i_dlast = 0
       14 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 36
+        i_dix = 38
         i_dlast = 0
       15 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 37
+        i_dix = 39
         i_dlast = 0
       16 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 38
+        i_dix = 40
         i_dlast = 0
       17 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 39
+        i_dix = 41
         i_dlast = 0
       18 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 40
+        i_dix = 42
         i_dlast = 0
       19 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 41
+        i_dix = 43
         i_dlast = 0
       20 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 42
+        i_dix = 44
         i_dlast = 0
       21 ->
         i_used = 1
@@ -494,31 +506,43 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
         i_used = 1
         i_sneg = 1
         i_data = 1
-        i_dix = 43
+        i_dix = 45
         i_dlast = 0
       23 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 44
+        i_dix = 46
         i_dlast = 0
       24 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 45
+        i_dix = 47
         i_dlast = 0
       25 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 46
+        i_dix = 48
         i_dlast = 0
       26 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
-        i_dix = 47
+        i_dix = 49
+        i_dlast = 0
+      27 ->
+        i_used = 1
+        i_sneg = 1
+        i_data = 1
+        i_dix = 50
+        i_dlast = 0
+      28 ->
+        i_used = 1
+        i_sneg = 1
+        i_data = 1
+        i_dix = 51
         i_dlast = 0
     end
     is0 = if i_sym == 0 do 1 else 0 end
