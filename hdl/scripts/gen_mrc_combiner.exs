@@ -70,22 +70,24 @@ data_k = Params.data(2)
 bin = fn k -> Params.bin(k, 2) end
 ltf_k = Params.ltf(2)
 bitrev6 = fn i -> for(b <- 0..5, reduce: 0, do: (acc -> acc ||| (i >>> b &&& 1) <<< (5 - b))) end
-# The last data bin in FFT output (bit-reversed) order carries e_last.
+# Every used tone is emitted: data tones with e_d = data index, pilots with
+# e_pilot = 1 and e_d = pilot index. The last used bin in FFT output
+# (bit-reversed) order carries e_last.
 fft_order = for p <- 0..63, do: bitrev6.(p)
-data_bins = MapSet.new(data_k, bin)
-last_data_bin = fft_order |> Enum.filter(&MapSet.member?(data_bins, &1)) |> List.last()
+used_bins = MapSet.new(used_k, bin)
+last_used_bin = fft_order |> Enum.filter(&MapSet.member?(used_bins, &1)) |> List.last()
 dix = data_k |> Enum.with_index() |> Map.new(fn {k, d} -> {bin.(k), d} end)
+pix = pilot_k |> Enum.with_index() |> Map.new(fn {k, d} -> {bin.(k), d} end)
 
 rom_arms =
   Enum.flat_map(used_k, fn k ->
     b = bin.(k)
 
-    ["      #{b} ->", "        i_used = 1", "        i_sneg = #{if ltf_k[k] < 0, do: 1, else: 0}"] ++
-      if Map.has_key?(dix, b) do
-        ["        i_data = 1", "        i_dix = #{dix[b]}", "        i_dlast = #{if b == last_data_bin, do: 1, else: 0}"]
-      else
-        []
-      end
+    {pil, idx} = if Map.has_key?(pix, b), do: {1, pix[b]}, else: {0, dix[b]}
+
+    ["      #{b} ->", "        i_used = 1", "        i_sneg = #{if ltf_k[k] < 0, do: 1, else: 0}",
+     "        i_data = 1", "        i_pil = #{pil}", "        i_dix = #{idx}",
+     "        i_dlast = #{if b == last_used_bin, do: 1, else: 0}"]
   end)
 
 # sh = max(0, bitlen(or_acc) - 16), as a priority chain.
@@ -177,12 +179,13 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
     chains |L1r|, |L1i|) - 16)`, one shift for both chains.
   * LTF2: `Hn = sat18(((L1 + L2) s_k) >> scale)` stored per `{chain, bin}`;
     `noise = (sum over chains and used bins |sat18((L1 - L2) >> scale)|^2) >> 1`.
-  * Data, chain 0: `{D_0, G_0}` per data bin into `dbuf`. Chain 1: emits
-    `{D_0 + D_1, G_0 + G_1}` as each data bin arrives (FFT order), with
-    `e_d` the data index and `e_last` on the last data bin in that order.
+  * Data symbols, chain 0: `{D_0, G_0}` per used bin into `dbuf`. Chain 1:
+    emits `{D_0 + D_1, G_0 + G_1}` for every used bin as it arrives (FFT
+    order): data tones with `e_d` the data index, pilots with `e_pilot = 1`
+    and `e_d` the pilot index; `e_last` on the last used bin in that order.
 
-  Common-phase (pilot) tracking is not here: it is a separate stage after
-  the combiner, shared by every MIMO mode. Products use the LtfSync
+  Common-phase (pilot) tracking is not here: `MimoHalow.Hw.Rx.Cpe` follows
+  the combiner and is shared by every MIMO mode. Products use the LtfSync
   unsigned-plus-sign-correction idiom.
 
   Contains written memories: verified under iverilog only.
@@ -208,6 +211,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
   output :e_j, 11
   output :e_stream, 1
   output :e_last, 1
+  output :e_pilot, 1
   output :scale, 4
   output :noise, 42
 
@@ -233,6 +237,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
   wire :i_used, 1
   wire :i_sneg, 1
   wire :i_data, 1
+  wire :i_pil, 1
   wire :i_dix, 6
   wire :i_dlast, 1
   wire :is0, 1
@@ -268,6 +273,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
   wire :o_d, 6, init: 0
   wire :o_j, 11, init: 0
   wire :o_last, 1, init: 0
+  wire :o_pil, 1, init: 0
 @@DP_DECLS@@
 
   comb do
@@ -282,6 +288,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
     i_used = 0
     i_sneg = 0
     i_data = 0
+    i_pil = 0
     i_dix = 0
     i_dlast = 0
     case i_bin do
@@ -309,6 +316,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
     e_j = o_j
     e_stream = 0
     e_last = o_last
+    e_pilot = o_pil
     scale = sh
     noise = noise_acc[42..1]
   end
@@ -379,6 +387,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
           o_d = i_dix
           o_j = i_sym - 2
           o_last = i_dlast
+          o_pil = i_pil
         end
       end
     end
@@ -396,4 +405,4 @@ src =
 out = Path.expand("../lib/mimo_halow/hw/rx/mrc_combiner.ex", __DIR__)
 File.mkdir_p!(Path.dirname(out))
 File.write!(out, src)
-IO.puts("wrote #{out} (#{src |> String.split("\n") |> length()} lines); last data bin in FFT order: #{last_data_bin}")
+IO.puts("wrote #{out} (#{src |> String.split("\n") |> length()} lines); last used bin in FFT order: #{last_used_bin}")

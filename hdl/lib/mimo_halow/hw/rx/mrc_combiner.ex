@@ -20,12 +20,13 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
     chains |L1r|, |L1i|) - 16)`, one shift for both chains.
   * LTF2: `Hn = sat18(((L1 + L2) s_k) >> scale)` stored per `{chain, bin}`;
     `noise = (sum over chains and used bins |sat18((L1 - L2) >> scale)|^2) >> 1`.
-  * Data, chain 0: `{D_0, G_0}` per data bin into `dbuf`. Chain 1: emits
-    `{D_0 + D_1, G_0 + G_1}` as each data bin arrives (FFT order), with
-    `e_d` the data index and `e_last` on the last data bin in that order.
+  * Data symbols, chain 0: `{D_0, G_0}` per used bin into `dbuf`. Chain 1:
+    emits `{D_0 + D_1, G_0 + G_1}` for every used bin as it arrives (FFT
+    order): data tones with `e_d` the data index, pilots with `e_pilot = 1`
+    and `e_d` the pilot index; `e_last` on the last used bin in that order.
 
-  Common-phase (pilot) tracking is not here: it is a separate stage after
-  the combiner, shared by every MIMO mode. Products use the LtfSync
+  Common-phase (pilot) tracking is not here: `MimoHalow.Hw.Rx.Cpe` follows
+  the combiner and is shared by every MIMO mode. Products use the LtfSync
   unsigned-plus-sign-correction idiom.
 
   Contains written memories: verified under iverilog only.
@@ -51,6 +52,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
   output :e_j, 11
   output :e_stream, 1
   output :e_last, 1
+  output :e_pilot, 1
   output :scale, 4
   output :noise, 42
 
@@ -76,6 +78,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
   wire :i_used, 1
   wire :i_sneg, 1
   wire :i_data, 1
+  wire :i_pil, 1
   wire :i_dix, 6
   wire :i_dlast, 1
   wire :is0, 1
@@ -111,6 +114,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
   wire :o_d, 6, init: 0
   wire :o_j, 11, init: 0
   wire :o_last, 1, init: 0
+  wire :o_pil, 1, init: 0
   wire :yr_s, 26
   wire :yi_s, 26
   wire :yn_r_c, 25
@@ -217,6 +221,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
     i_used = 0
     i_sneg = 0
     i_data = 0
+    i_pil = 0
     i_dix = 0
     i_dlast = 0
     case i_bin do
@@ -224,324 +229,392 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 0
         i_dlast = 0
       37 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 1
         i_dlast = 0
       38 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 2
         i_dlast = 0
       39 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 3
         i_dlast = 0
       40 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 4
         i_dlast = 0
       41 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 5
         i_dlast = 0
       42 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 6
         i_dlast = 0
       43 ->
         i_used = 1
         i_sneg = 0
+        i_data = 1
+        i_pil = 1
+        i_dix = 0
+        i_dlast = 0
       44 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 7
         i_dlast = 0
       45 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 8
         i_dlast = 0
       46 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 9
         i_dlast = 0
       47 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 10
         i_dlast = 0
       48 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 11
         i_dlast = 0
       49 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 12
         i_dlast = 0
       50 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 13
         i_dlast = 0
       51 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 14
         i_dlast = 0
       52 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 15
         i_dlast = 0
       53 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 16
         i_dlast = 0
       54 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 17
         i_dlast = 0
       55 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 18
         i_dlast = 0
       56 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 19
         i_dlast = 0
       57 ->
         i_used = 1
         i_sneg = 1
+        i_data = 1
+        i_pil = 1
+        i_dix = 1
+        i_dlast = 0
       58 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 20
         i_dlast = 0
       59 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 21
         i_dlast = 0
       60 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 22
         i_dlast = 0
       61 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 23
         i_dlast = 0
       62 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 24
         i_dlast = 0
       63 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 25
         i_dlast = 1
       1 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 26
         i_dlast = 0
       2 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 27
         i_dlast = 0
       3 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 28
         i_dlast = 0
       4 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 29
         i_dlast = 0
       5 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 30
         i_dlast = 0
       6 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 31
         i_dlast = 0
       7 ->
         i_used = 1
         i_sneg = 0
+        i_data = 1
+        i_pil = 1
+        i_dix = 2
+        i_dlast = 0
       8 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 32
         i_dlast = 0
       9 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 33
         i_dlast = 0
       10 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 34
         i_dlast = 0
       11 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 35
         i_dlast = 0
       12 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 36
         i_dlast = 0
       13 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 37
         i_dlast = 0
       14 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 38
         i_dlast = 0
       15 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 39
         i_dlast = 0
       16 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 40
         i_dlast = 0
       17 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 41
         i_dlast = 0
       18 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 42
         i_dlast = 0
       19 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 43
         i_dlast = 0
       20 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 44
         i_dlast = 0
       21 ->
         i_used = 1
         i_sneg = 0
+        i_data = 1
+        i_pil = 1
+        i_dix = 3
+        i_dlast = 0
       22 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 45
         i_dlast = 0
       23 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 46
         i_dlast = 0
       24 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 47
         i_dlast = 0
       25 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 48
         i_dlast = 0
       26 ->
         i_used = 1
         i_sneg = 0
         i_data = 1
+        i_pil = 0
         i_dix = 49
         i_dlast = 0
       27 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 50
         i_dlast = 0
       28 ->
         i_used = 1
         i_sneg = 1
         i_data = 1
+        i_pil = 0
         i_dix = 51
         i_dlast = 0
     end
@@ -863,6 +936,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
     e_j = o_j
     e_stream = 0
     e_last = o_last
+    e_pilot = o_pil
     scale = sh
     noise = noise_acc[42..1]
   end
@@ -933,6 +1007,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombiner do
           o_d = i_dix
           o_j = i_sym - 2
           o_last = i_dlast
+          o_pil = i_pil
         end
       end
     end

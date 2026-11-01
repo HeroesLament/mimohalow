@@ -8,9 +8,12 @@ defmodule MimoHalow.Hw.Rx.MrcCombinerTest do
   alias MimoHalow.Model.S1g.Params
   @used_k Params.used(2)
   @data_k Params.data(2)
+  @pilot_k Params.pilots(2)
   @ltf_k Params.ltf(2)
   @sign @ltf_k
-  @dix @data_k |> Enum.with_index() |> Map.new()
+  @dix @data_k |> Enum.with_index() |> Map.new(fn {k, d} -> {k, {0, d}} end)
+  @pix @pilot_k |> Enum.with_index() |> Map.new(fn {k, d} -> {k, {1, d}} end)
+  @idx Map.merge(@dix, @pix)
 
   defp bin(k), do: Params.bin(k, 2)
   defp bitrev6(i), do: for(b <- 0..5, reduce: 0, do: (acc -> acc ||| (i >>> b &&& 1) <<< (5 - b)))
@@ -61,8 +64,9 @@ defmodule MimoHalow.Hw.Rx.MrcCombinerTest do
     est = Mrc.estimate(Enum.map(l1, by_k), Enum.map(l2, by_k), @used_k, @sign)
 
     out =
-      for {y, j} <- Enum.with_index(data), {k, {{dr, di}, g}} <- Mrc.combine(est, Enum.map(y, by_k), @data_k) do
-        {j, @dix[k], dr, di, g}
+      for {y, j} <- Enum.with_index(data), {k, {{dr, di}, g}} <- Mrc.combine(est, Enum.map(y, by_k), @used_k) do
+        {pil, d} = @idx[k]
+        {j, pil, d, dr, di, g}
       end
 
     {est.sh, est.noise, Enum.sort(out)}
@@ -111,9 +115,9 @@ defmodule MimoHalow.Hw.Rx.MrcCombinerTest do
 
       es =
         Enum.map(es, fn l ->
-          [j, d, re, im, g, last] = String.split(l)
-          {String.to_integer(j), String.to_integer(d), s26(String.to_integer(re, 16)), s26(String.to_integer(im, 16)),
-           String.to_integer(g), String.to_integer(last)}
+          [j, d, re, im, g, last, pil] = String.split(l)
+          {String.to_integer(j), String.to_integer(pil), String.to_integer(d), s26(String.to_integer(re, 16)),
+           s26(String.to_integer(im, 16)), String.to_integer(g), String.to_integer(last)}
         end)
 
       [sh, noise] = n |> String.split() |> Enum.map(&String.to_integer/1)
@@ -133,7 +137,7 @@ defmodule MimoHalow.Hw.Rx.MrcCombinerTest do
       assert (sh > 0) == (amp > 100_000)
       lv = if q16, do: Enum.map([-3, -1, 1, 3], &(&1 / :math.sqrt(10))), else: [-1 / :math.sqrt(2), 1 / :math.sqrt(2)]
 
-      for {_j, _d, dr, di, g} <- out do
+      for {_j, 0, _d, dr, di, g} <- out do
         # D / G = x / 2 (Hn carries L1 + L2 = 2 H)
         {x, y} = {2 * dr / g, 2 * di / g}
         assert Enum.min(Enum.map(lv, &abs(&1 - x))) < 0.1
@@ -156,11 +160,13 @@ defmodule MimoHalow.Hw.Rx.MrcCombinerTest do
     {ga, gb} = Enum.split(got, length(outa))
 
     for {g, want} <- [{ga, outa}, {gb, outb}] do
-      assert Enum.sort(Enum.map(g, fn {j, d, r, i, gg, _} -> {j, d, r, i, gg} end)) == want
+      assert Enum.sort(Enum.map(g, fn {j, p, d, r, i, gg, _} -> {j, p, d, r, i, gg} end)) == want
 
-      # e_last: exactly the final output of each data symbol.
+      # Every used tone once per symbol; e_last exactly on the final output.
       for {_j, rows} <- Enum.group_by(g, &elem(&1, 0)) do
-        assert Enum.map(rows, &elem(&1, 5)) == List.duplicate(0, length(rows) - 1) ++ [1]
+        assert length(rows) == length(@used_k)
+        assert Enum.count(rows, &(elem(&1, 1) == 1)) == length(@pilot_k)
+        assert Enum.map(rows, &elem(&1, 6)) == List.duplicate(0, length(rows) - 1) ++ [1]
       end
     end
 

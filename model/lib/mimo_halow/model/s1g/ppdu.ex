@@ -228,7 +228,6 @@ defmodule MimoHalow.Model.S1g.Ppdu do
 
     with {:ok, f} <- decode_sig(bw, h, sigs),
          {:ok, r} <- Params.rate(bw, f.mcs) do
-      len = if f.aggregation, do: nil, else: f.length
       ns = if f.aggregation, do: f.length, else: nsym(r, f.length)
       d0 = s0 + nsig * (gi + n)
 
@@ -237,12 +236,7 @@ defmodule MimoHalow.Model.S1g.Ppdu do
       end
 
       ys = for m <- 0..(ns - 1), do: fft_at(t, d0 + m * (gi + n) + gi, n)
-      bits = decode_data(bw, r, h, ys)
-      # SERVICE: first 7 descrambled bits are zero; recover the seed.
-      payload = Enum.drop(bits, 8)
-      len = len || div(length(payload) - 6, 8)
-      psdu = payload |> Enum.take(8 * len) |> Coding.bits_to_bytes()
-      {:ok, %{fields: f, rate: r, nsym: ns, psdu: psdu, fcs_ok: fcs_ok?(psdu)}}
+      {:ok, finish(f, r, ns, decode_data(bw, r, h, ys))}
     end
   end
 
@@ -288,12 +282,31 @@ defmodule MimoHalow.Model.S1g.Ppdu do
   end
 
   defp decode_sig(bw, h, sigs) do
+    sigs
+    |> Enum.with_index()
+    |> Enum.map(fn {y, n} ->
+      pil = if bw == 1, do: Coding.pilot_values(1, n, n), else: Coding.pilot_values(2, 0, n, false)
+      equalise(bw, h, y, :sig, pil, Params.sig_data(bw))
+    end)
+    |> sig_from_points(bw)
+  end
+
+  defp decode_data(bw, r, h, ys) do
+    z = Params.sig_syms(bw)
+
+    ys
+    |> Enum.with_index()
+    |> Enum.map(fn {y, m} -> equalise(bw, h, y, :data, Coding.pilot_values(bw, m, m + z), Params.data(bw)) end)
+    |> data_from_points(bw, r)
+  end
+
+  @doc """
+  SIG from equalised points: one list per SIG symbol of `{x, nvar}` on
+  `Params.sig_data(bw)` tones, in tone order.
+  """
+  def sig_from_points(syms, bw) do
     llrs =
-      sigs
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {y, n} ->
-        pil = if bw == 1, do: Coding.pilot_values(1, n, n), else: Coding.pilot_values(2, 0, n, false)
-        pts = equalise(bw, h, y, :sig, pil, Params.sig_data(bw))
+      Enum.flat_map(syms, fn pts ->
         # BPSK (1 MHz) / QBPSK (2 MHz): bit 1 -> +1 on the used axis. LLR = log P0/P1.
         l = Enum.map(pts, fn {{re, im}, nv} -> -4.0 * if(bw == 1, do: re, else: im) / nv end)
 
@@ -303,26 +316,53 @@ defmodule MimoHalow.Model.S1g.Ppdu do
         end
       end)
 
-    bits = Bcc.viterbi(llrs, terminated: true)
-    parse_sig(bw, bits)
+    parse_sig(bw, Bcc.viterbi(llrs, terminated: true))
   end
 
-  defp decode_data(bw, r, h, ys) do
-    z = Params.sig_syms(bw)
-
+  @doc "Descrambled DATA bits from equalised points (one `{x, nvar}` list per symbol, data tones)."
+  def data_from_points(syms, bw, r) do
     llrs =
-      ys
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {y, m} ->
-        pts = equalise(bw, h, y, :data, Coding.pilot_values(bw, m, m + z), Params.data(bw))
+      Enum.flat_map(syms, fn pts ->
         l = Enum.flat_map(pts, fn {x, nv} -> Demap.llrs(x, max(nv, 1.0e-6), r.mod) end)
         l = Coding.deinterleave(l, Params.interleaver(bw, r.nbpsc), r.nbpsc)
         if r.rep, do: Coding.unrep2(l), else: l
       end)
 
     # one rate-1/2 output pair per information bit
-    coded = Coding.depuncture(llrs, r.rate, length(ys) * r.ndbps)
+    coded = Coding.depuncture(llrs, r.rate, length(syms) * r.ndbps)
     descramble(Bcc.viterbi(coded, terminated: true))
+  end
+
+  @doc """
+  Back end on per-symbol equalised data-tone points (symbol 0 = first SIG
+  symbol; each a list of `{x, nvar}` in `Params.data(bw)` order, as the RTL
+  detector + CPE emit them). Returns what `rx/2` returns.
+  """
+  def decode_points(bw, syms) do
+    nsig = Params.sig_syms(bw)
+    {sig_syms, data_syms} = Enum.split(syms, nsig)
+    pos = Params.data(bw) |> Enum.with_index() |> Map.new()
+    sel = Enum.map(Params.sig_data(bw), &pos[&1])
+    sig_pts = Enum.map(sig_syms, fn pts -> t = List.to_tuple(pts); Enum.map(sel, &elem(t, &1)) end)
+
+    with {:ok, f} <- sig_from_points(sig_pts, bw),
+         {:ok, r} <- Params.rate(bw, f.mcs) do
+      ns = if f.aggregation, do: f.length, else: nsym(r, f.length)
+
+      if ns > length(data_syms) do
+        {:error, {:truncated, ns}}
+      else
+        bits = data_from_points(Enum.take(data_syms, ns), bw, r)
+        {:ok, finish(f, r, ns, bits)}
+      end
+    end
+  end
+
+  defp finish(f, r, ns, bits) do
+    payload = Enum.drop(bits, 8)
+    len = if f.aggregation, do: div(length(payload) - 6, 8), else: f.length
+    psdu = payload |> Enum.take(8 * len) |> Coding.bits_to_bytes()
+    %{fields: f, rate: r, nsym: ns, psdu: psdu, fcs_ok: fcs_ok?(psdu)}
   end
 
   # Seed from the first 7 (zero) SERVICE bits: the scrambler output there is the seed's sequence.
