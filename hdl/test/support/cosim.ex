@@ -11,8 +11,11 @@ defmodule MimoHalow.Test.Cosim do
       (File.exists?(Path.expand("~/oss-cad-suite/bin/iverilog")) && Path.expand("~/oss-cad-suite/bin/iverilog")) || nil
   end
 
-  @doc "Run `bench` (file name) against `mods` (components) with stim `lines`."
-  def run(mods, bench, stim_lines) do
+  @doc """
+  Run `bench` (file name) against `mods` (components) with stim `lines`.
+  The stim file's first line is `opts[:header]` (default: the line count).
+  """
+  def run(mods, bench, stim_lines, opts \\ []) do
     iv = iverilog() || raise "iverilog not found"
     dir = Path.join(System.tmp_dir!(), "mh_cosim_#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
@@ -29,7 +32,8 @@ defmodule MimoHalow.Test.Cosim do
       out = Path.join(dir, "tb.vvp")
       {log, rc} = System.cmd(iv, ["-g2012", "-o", out, "-s", "tb", tb | duts], stderr_to_stdout: true)
       if rc != 0, do: raise("iverilog: " <> log)
-      File.write!(Path.join(dir, "stim.txt"), ["#{length(stim_lines)}\n" | Enum.map(stim_lines, &[&1, "\n"])])
+      header = Keyword.get(opts, :header, "#{length(stim_lines)}")
+      File.write!(Path.join(dir, "stim.txt"), [header, "\n" | Enum.map(stim_lines, &[&1, "\n"])])
       {log, rc} = System.cmd(Path.join(Path.dirname(iv), "vvp"), ["-n", out], stderr_to_stdout: true, cd: dir)
       if rc != 0, do: raise("vvp: " <> log)
       dir |> Path.join("out.txt") |> File.read!() |> String.split("\n", trim: true)

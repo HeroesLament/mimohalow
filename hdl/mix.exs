@@ -22,7 +22,10 @@ defmodule MimoHalow.Hdl.MixProject do
   defp deps do
     [
       {:ehdl, path: "../../ehdl"},
-      {:mimohalow_model, path: "../model"}
+      {:mimohalow_model, path: "../model"},
+      # OcuSync's receive blocks (StfDetector, LtfSync, SymFeed): S1G 2 MHz
+      # short preamble has the 11a L-STF / L-LTF layout, so they are reused as is.
+      {:openocusync_hdl, path: "../../openocusync/hdl"}
     ]
   end
 end
