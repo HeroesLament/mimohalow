@@ -8,8 +8,10 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
                -> MrcCombiner -> Cpe -> S1gSigDec (nsym back to both SymFeeds)
                                      -> DataDemap -> Viterbi -> ByteOut (PSDU bytes)
 
-  The OcuSync blocks are reused as is: S1G_SHORT's STF / LTF1 have the
-  11a L-STF / L-LTF layout. Both `SymFeed`s take chain 0's sync, so the two
+  The OcuSync detector and sync are reused as is: S1G_SHORT's STF / LTF1
+  have the 11a L-STF / L-LTF layout. The feeders are
+  `MimoHalow.Hw.Rx.SymFeed` (OcuSync's with preamble preemption: a sync
+  during a packet whose SIG is not yet in re-arms them). Both `SymFeed`s take chain 0's sync, so the two
   FFTs run in lock step. Samples (12-bit, 2 MS/s) at least 8 cycles apart
   (BinMerge replays 128 bins per 64-sample window at 4 cycles per bin); 16
   at the 32 MHz clock.
@@ -39,6 +41,7 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   output :sync_td, 32
   output :sync_count, 16
   output :drop_count, 16
+  output :preempt_count, 16
   output :overrun, 8
   output :scale, 4
   output :noise, 42
@@ -103,6 +106,7 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
   wire :zf1, 1
   wire :fb1, 1
   wire :drop1, 16
+  wire :pre1, 16
   wire :ztag0, 12
   wire :ztag1, 12
   wire :fv0, 1
@@ -177,15 +181,15 @@ defmodule MimoHalow.Hw.Rx.Eig1 do
     done: :done, busy: :sync_busy, ts_off: :ts_off, theta: :theta, theta2: :theta2, dphi: :dphi,
     sync_td: :sync_td, sync_count: :sync_count
 
-  instance :feed0, Hw.SymFeed,
+  instance :feed0, MimoHalow.Hw.Rx.SymFeed,
     clk: :clk, enable: :enable, y_valid: :yv0, y_i: :yi0, y_q: :yq0,
     sync_done: :done, sync_td: :sync_td, ts_off: :ts_off, dphi: :dphi, set_nsym: :sig_done, nsym: :nsym_total,
-    z_valid: :zv0, z_i: :zi0, z_q: :zq0, z_sym: :zs0, z_flush: :zf0, busy: :fb0, drop_count: :drop_count
+    z_valid: :zv0, z_i: :zi0, z_q: :zq0, z_sym: :zs0, z_flush: :zf0, busy: :fb0, drop_count: :drop_count, preempt_count: :preempt_count
 
-  instance :feed1, Hw.SymFeed,
+  instance :feed1, MimoHalow.Hw.Rx.SymFeed,
     clk: :clk, enable: :enable, y_valid: :yv1, y_i: :yi1, y_q: :yq1,
     sync_done: :done, sync_td: :sync_td, ts_off: :ts_off, dphi: :dphi, set_nsym: :sig_done, nsym: :nsym_total,
-    z_valid: :zv1, z_i: :zi1, z_q: :zq1, z_sym: :zs1, z_flush: :zf1, busy: :fb1, drop_count: :drop1
+    z_valid: :zv1, z_i: :zi1, z_q: :zq1, z_sym: :zs1, z_flush: :zf1, busy: :fb1, drop_count: :drop1, preempt_count: :pre1
 
   instance :fft0, Hw.Fft64,
     clk: :clk, enable: :enable, in_valid: :zv0, in_i: :zi0, in_q: :zq0, in_tag: :ztag0,

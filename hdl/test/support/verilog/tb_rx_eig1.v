@@ -2,7 +2,7 @@
 // (2 MS/s on 32 MHz). stim.txt: "<n> <emin>", then n lines "<i0> <q0> <i1>
 // <q1>" (hex12). out.txt: per Cpe output "<j> <d> <re hex27> <im hex27> <g>
 // <theta>", per sync "D <td> <ts_off>", per SIG "G <ok> <discard>
-// <nsym_total> <bits hex48>", per PSDU byte "B <byte> <last>", then
+// <nsym_total> <bits hex48> <t>" (D and G end in the input sample index t), per PSDU byte "B <byte> <last>", then
 // "S <sync> <det> <drop> <overrun> <v_overflow> <d_early>".
 `timescale 1ns/1ps
 module tb;
@@ -43,8 +43,8 @@ module tb;
 
   task tick; begin
     #5 clk = 1; #5 clk = 0;
-    if (done) $fdisplay(fo, "D %0d %0d", sync_td, ts_off);
-    if (sig_done) $fdisplay(fo, "G %0d %0d %0d %h", sig_ok, sig_discard, nsym_total, sig_bits);
+    if (done) $fdisplay(fo, "D %0d %0d %0d", sync_td, ts_off, t);
+    if (sig_done) $fdisplay(fo, "G %0d %0d %0d %h %0d", sig_ok, sig_discard, nsym_total, sig_bits, t);
     if (b_valid) $fdisplay(fo, "B %0d %0d", b_byte, b_last);
     if (e_valid) $fdisplay(fo, "%0d %0d %h %h %0d %0d", e_j, e_d, e_i, e_q, e_g, e_theta);
   end endtask

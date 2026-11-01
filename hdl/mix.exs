@@ -16,8 +16,8 @@ defmodule MimoHalow.Hdl.MixProject do
     [extra_applications: [:logger]]
   end
 
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
+  defp elixirc_paths(:test), do: ["lib", "designs", "test/support"]
+  defp elixirc_paths(_), do: ["lib", "designs"]
 
   defp deps do
     [
