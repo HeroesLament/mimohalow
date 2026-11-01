@@ -24,8 +24,8 @@ sc = fn v, w -> if v < 0, do: v + Bitwise.bsl(1, w), else: v end
 hb1_decls =
   Enum.flat_map(streams, fn s ->
     Enum.map(0..(n1 - 1), &"  wire :x#{s}_#{&1}, 12, init: 0") ++
-      Enum.flat_map(p1, fn {a, b, _} -> ["  wire :ps#{s}_#{a}, 34", "  wire :pp#{s}_#{a}, 34"] end) ++
-      ["  wire :xc#{s}, 34", "  wire :acc1#{s}, 34", "  wire :r1#{s}, 34", "  wire :y1#{s}, 13, init: 0", "  wire :y1c#{s}, 13"]
+      Enum.flat_map(p1, fn {a, b, _} -> ["  wire :ps#{s}_#{a}, 30", "  wire :pp#{s}_#{a}, 30"] end) ++
+      ["  wire :xc#{s}, 30", "  wire :acc1#{s}, 30", "  wire :r1#{s}, 30", "  wire :y1#{s}, 13, init: 0", "  wire :y1c#{s}, 13"]
   end)
 
 sx = fn sig, w, to -> "{replicate(#{sig}[#{w - 1}..#{w - 1}], #{to - w}), #{sig}}" end
@@ -33,14 +33,14 @@ sx = fn sig, w, to -> "{replicate(#{sig}[#{w - 1}..#{w - 1}], #{to - w}), #{sig}
 hb1_comb =
   Enum.flat_map(streams, fn s ->
     Enum.flat_map(p1, fn {a, b, c} ->
-      ["    ps#{s}_#{a} = #{sx.("x#{s}_#{a}", 12, 34)} + #{sx.("x#{s}_#{b}", 12, 34)}",
-       "    pp#{s}_#{a} = ps#{s}_#{a} * #{sc.(c, 34)}"]
+      ["    ps#{s}_#{a} = #{sx.("x#{s}_#{a}", 12, 30)} + #{sx.("x#{s}_#{b}", 12, 30)}",
+       "    pp#{s}_#{a} = ps#{s}_#{a} * #{sc.(c, 30)}"]
     end) ++
-      ["    xc#{s} = {#{sx.("x#{s}_#{c1}", 12, 20)}, zero16[13..0]}",
+      ["    xc#{s} = {#{sx.("x#{s}_#{c1}", 12, 16)}, zero16[13..0]}",
        "    acc1#{s} = " <> Enum.map_join(p1, " + ", fn {a, _, _} -> "pp#{s}_#{a}" end) <> " + xc#{s}",
        "    r1#{s} = acc1#{s} + 16384",
-       # sat13 of r1 >> 15: bits 33..27 must all equal bit 27
-       "    y1c#{s} = if r1#{s}[33..27] == 0 or r1#{s}[33..27] == 127 do r1#{s}[27..15] else (if r1#{s}[33..33] == 1 do 4096 else 4095 end) end"]
+       # sat13 of r1 >> 15: bits 29..27 must all equal bit 27
+       "    y1c#{s} = if r1#{s}[29..27] == 0 or r1#{s}[29..27] == 7 do r1#{s}[27..15] else (if r1#{s}[29..29] == 1 do 4096 else 4095 end) end"]
   end)
 
 shift =
@@ -52,7 +52,8 @@ hb2_decls =
   Enum.flat_map(streams, fn s ->
     ["  memory :ra#{s}, width: 13, depth: 64, sync_read: :clk, init: #{inspect(List.duplicate(0, 64))}",
      "  memory :rb#{s}, width: 13, depth: 64, sync_read: :clk, init: #{inspect(List.duplicate(0, 64))}",
-     "  wire :da#{s}, 13", "  wire :db#{s}, 13", "  wire :pre#{s}, 14", "  wire :prod#{s}, 40", "  wire :acc2#{s}, 40, init: 0",
+     "  wire :da#{s}, 13", "  wire :db#{s}, 13", "  wire :pre#{s}, 14", "  wire :pu#{s}, 32", "  wire :pka#{s}, 32", "  wire :pkb#{s}, 32",
+     "  wire :ps2#{s}, 32", "  wire :prod#{s}, 40", "  wire :acc2#{s}, 40, init: 0",
      "  wire :r2#{s}, 40", "  wire :y2c#{s}, 12", "  wire :o#{s}, 12, init: 0"]
   end)
 
@@ -63,7 +64,12 @@ hb2_comb =
   Enum.flat_map(streams, fn s ->
     ["    da#{s} = ra#{s}[aa]", "    db#{s} = rb#{s}[ab]",
      "    pre#{s} = if dj == 15 do #{sx.("da#{s}", 13, 14)} else #{sx.("da#{s}", 13, 14)} + #{sx.("db#{s}", 13, 14)} end",
-     "    prod#{s} = #{sx.("pre#{s}", 14, 40)} * {replicate(dcf[17..17], 22), dcf}",
+     # signed 14 x 18 -> 32 from the unsigned product (one DSP48E1)
+     "    pu#{s} = pre#{s} * dcf",
+     "    pka#{s} = if pre#{s}[13..13] == 1 do {dcf, zero16[13..0]} else 0 end",
+     "    pkb#{s} = if dcf[17..17] == 1 do {pre#{s}, zero16, zero16[1..0]} else 0 end",
+     "    ps2#{s} = pu#{s} - pka#{s} - pkb#{s}",
+     "    prod#{s} = #{sx.("ps2#{s}", 32, 40)}",
      "    r2#{s} = acc2#{s} + 65536",
      # sat12 of r2 >> 17: bits 39..28 all equal
      "    y2c#{s} = if r2#{s}[39..28] == 0 or r2#{s}[39..28] == 4095 do r2#{s}[28..17] else (if r2#{s}[39..39] == 1 do 2048 else 2047 end) end"]
@@ -90,9 +96,11 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
     (15 pairs + centre), one multiplier per stream, rounded, saturated to
     12 bits -> `o_valid` with the four outputs.
 
-  Products are written as full-width unsigned multiplies of sign-extended
-  operands truncated to the result width (exact two's complement); trimming
-  them to the smul idiom is a resource optimisation left for later.
+  Products: HB1 by constants at 30 bits (sign-extended operands, exact mod
+  2^30, |sum| < 2^28); HB2 as a signed 14 x 18 product from the unsigned one
+  (`u - (a<0 ? b<<14 : 0) - (b<0 ? a<<18 : 0)`, exact mod 2^32), one
+  DSP48E1 per stream. (40 x 40 sign-extended products went to fabric:
+  ~6,200 carry bits and ~25k feed LUTs on the board top.)
 
   `valid` exactly every 4 cycles or slower (8 MS/s on the 32 MHz
   DATA_CLK): HB2 jobs then start at least 16 cycles apart; a job's last

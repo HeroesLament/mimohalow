@@ -12,9 +12,11 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
     (15 pairs + centre), one multiplier per stream, rounded, saturated to
     12 bits -> `o_valid` with the four outputs.
 
-  Products are written as full-width unsigned multiplies of sign-extended
-  operands truncated to the result width (exact two's complement); trimming
-  them to the smul idiom is a resource optimisation left for later.
+  Products: HB1 by constants at 30 bits (sign-extended operands, exact mod
+  2^30, |sum| < 2^28); HB2 as a signed 14 x 18 product from the unsigned one
+  (`u - (a<0 ? b<<14 : 0) - (b<0 ? a<<18 : 0)`, exact mod 2^32), one
+  DSP48E1 per stream. (40 x 40 sign-extended products went to fabric:
+  ~6,200 carry bits and ~25k feed LUTs on the board top.)
 
   `valid` exactly every 4 cycles or slower (8 MS/s on the 32 MHz
   DATA_CLK): HB2 jobs then start at least 16 cycles apart; a job's last
@@ -72,17 +74,17 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :xi0_12, 12, init: 0
   wire :xi0_13, 12, init: 0
   wire :xi0_14, 12, init: 0
-  wire :psi0_0, 34
-  wire :ppi0_0, 34
-  wire :psi0_2, 34
-  wire :ppi0_2, 34
-  wire :psi0_4, 34
-  wire :ppi0_4, 34
-  wire :psi0_6, 34
-  wire :ppi0_6, 34
-  wire :xci0, 34
-  wire :acc1i0, 34
-  wire :r1i0, 34
+  wire :psi0_0, 30
+  wire :ppi0_0, 30
+  wire :psi0_2, 30
+  wire :ppi0_2, 30
+  wire :psi0_4, 30
+  wire :ppi0_4, 30
+  wire :psi0_6, 30
+  wire :ppi0_6, 30
+  wire :xci0, 30
+  wire :acc1i0, 30
+  wire :r1i0, 30
   wire :y1i0, 13, init: 0
   wire :y1ci0, 13
   wire :xq0_0, 12, init: 0
@@ -100,17 +102,17 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :xq0_12, 12, init: 0
   wire :xq0_13, 12, init: 0
   wire :xq0_14, 12, init: 0
-  wire :psq0_0, 34
-  wire :ppq0_0, 34
-  wire :psq0_2, 34
-  wire :ppq0_2, 34
-  wire :psq0_4, 34
-  wire :ppq0_4, 34
-  wire :psq0_6, 34
-  wire :ppq0_6, 34
-  wire :xcq0, 34
-  wire :acc1q0, 34
-  wire :r1q0, 34
+  wire :psq0_0, 30
+  wire :ppq0_0, 30
+  wire :psq0_2, 30
+  wire :ppq0_2, 30
+  wire :psq0_4, 30
+  wire :ppq0_4, 30
+  wire :psq0_6, 30
+  wire :ppq0_6, 30
+  wire :xcq0, 30
+  wire :acc1q0, 30
+  wire :r1q0, 30
   wire :y1q0, 13, init: 0
   wire :y1cq0, 13
   wire :xi1_0, 12, init: 0
@@ -128,17 +130,17 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :xi1_12, 12, init: 0
   wire :xi1_13, 12, init: 0
   wire :xi1_14, 12, init: 0
-  wire :psi1_0, 34
-  wire :ppi1_0, 34
-  wire :psi1_2, 34
-  wire :ppi1_2, 34
-  wire :psi1_4, 34
-  wire :ppi1_4, 34
-  wire :psi1_6, 34
-  wire :ppi1_6, 34
-  wire :xci1, 34
-  wire :acc1i1, 34
-  wire :r1i1, 34
+  wire :psi1_0, 30
+  wire :ppi1_0, 30
+  wire :psi1_2, 30
+  wire :ppi1_2, 30
+  wire :psi1_4, 30
+  wire :ppi1_4, 30
+  wire :psi1_6, 30
+  wire :ppi1_6, 30
+  wire :xci1, 30
+  wire :acc1i1, 30
+  wire :r1i1, 30
   wire :y1i1, 13, init: 0
   wire :y1ci1, 13
   wire :xq1_0, 12, init: 0
@@ -156,17 +158,17 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :xq1_12, 12, init: 0
   wire :xq1_13, 12, init: 0
   wire :xq1_14, 12, init: 0
-  wire :psq1_0, 34
-  wire :ppq1_0, 34
-  wire :psq1_2, 34
-  wire :ppq1_2, 34
-  wire :psq1_4, 34
-  wire :ppq1_4, 34
-  wire :psq1_6, 34
-  wire :ppq1_6, 34
-  wire :xcq1, 34
-  wire :acc1q1, 34
-  wire :r1q1, 34
+  wire :psq1_0, 30
+  wire :ppq1_0, 30
+  wire :psq1_2, 30
+  wire :ppq1_2, 30
+  wire :psq1_4, 30
+  wire :ppq1_4, 30
+  wire :psq1_6, 30
+  wire :ppq1_6, 30
+  wire :xcq1, 30
+  wire :acc1q1, 30
+  wire :r1q1, 30
   wire :y1q1, 13, init: 0
   wire :y1cq1, 13
   memory :rai0, width: 13, depth: 64, sync_read: :clk, init: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
@@ -174,6 +176,10 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :dai0, 13
   wire :dbi0, 13
   wire :prei0, 14
+  wire :pui0, 32
+  wire :pkai0, 32
+  wire :pkbi0, 32
+  wire :ps2i0, 32
   wire :prodi0, 40
   wire :acc2i0, 40, init: 0
   wire :r2i0, 40
@@ -184,6 +190,10 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :daq0, 13
   wire :dbq0, 13
   wire :preq0, 14
+  wire :puq0, 32
+  wire :pkaq0, 32
+  wire :pkbq0, 32
+  wire :ps2q0, 32
   wire :prodq0, 40
   wire :acc2q0, 40, init: 0
   wire :r2q0, 40
@@ -194,6 +204,10 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :dai1, 13
   wire :dbi1, 13
   wire :prei1, 14
+  wire :pui1, 32
+  wire :pkai1, 32
+  wire :pkbi1, 32
+  wire :ps2i1, 32
   wire :prodi1, 40
   wire :acc2i1, 40, init: 0
   wire :r2i1, 40
@@ -204,6 +218,10 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
   wire :daq1, 13
   wire :dbq1, 13
   wire :preq1, 14
+  wire :puq1, 32
+  wire :pkaq1, 32
+  wire :pkbq1, 32
+  wire :ps2q1, 32
   wire :prodq1, 40
   wire :acc2q1, 40, init: 0
   wire :r2q1, 40
@@ -212,54 +230,54 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
 
   comb do
     zero16 = 0
-    psi0_0 = {replicate(xi0_0[11..11], 22), xi0_0} + {replicate(xi0_14[11..11], 22), xi0_14}
-    ppi0_0 = psi0_0 * 17179869162
-    psi0_2 = {replicate(xi0_2[11..11], 22), xi0_2} + {replicate(xi0_12[11..11], 22), xi0_12}
+    psi0_0 = {replicate(xi0_0[11..11], 18), xi0_0} + {replicate(xi0_14[11..11], 18), xi0_14}
+    ppi0_0 = psi0_0 * 1073741802
+    psi0_2 = {replicate(xi0_2[11..11], 18), xi0_2} + {replicate(xi0_12[11..11], 18), xi0_12}
     ppi0_2 = psi0_2 * 417
-    psi0_4 = {replicate(xi0_4[11..11], 22), xi0_4} + {replicate(xi0_10[11..11], 22), xi0_10}
-    ppi0_4 = psi0_4 * 17179867128
-    psi0_6 = {replicate(xi0_6[11..11], 22), xi0_6} + {replicate(xi0_8[11..11], 22), xi0_8}
+    psi0_4 = {replicate(xi0_4[11..11], 18), xi0_4} + {replicate(xi0_10[11..11], 18), xi0_10}
+    ppi0_4 = psi0_4 * 1073739768
+    psi0_6 = {replicate(xi0_6[11..11], 18), xi0_6} + {replicate(xi0_8[11..11], 18), xi0_8}
     ppi0_6 = psi0_6 * 9861
-    xci0 = {{replicate(xi0_7[11..11], 8), xi0_7}, zero16[13..0]}
+    xci0 = {{replicate(xi0_7[11..11], 4), xi0_7}, zero16[13..0]}
     acc1i0 = ppi0_0 + ppi0_2 + ppi0_4 + ppi0_6 + xci0
     r1i0 = acc1i0 + 16384
-    y1ci0 = if r1i0[33..27] == 0 or r1i0[33..27] == 127 do r1i0[27..15] else (if r1i0[33..33] == 1 do 4096 else 4095 end) end
-    psq0_0 = {replicate(xq0_0[11..11], 22), xq0_0} + {replicate(xq0_14[11..11], 22), xq0_14}
-    ppq0_0 = psq0_0 * 17179869162
-    psq0_2 = {replicate(xq0_2[11..11], 22), xq0_2} + {replicate(xq0_12[11..11], 22), xq0_12}
+    y1ci0 = if r1i0[29..27] == 0 or r1i0[29..27] == 7 do r1i0[27..15] else (if r1i0[29..29] == 1 do 4096 else 4095 end) end
+    psq0_0 = {replicate(xq0_0[11..11], 18), xq0_0} + {replicate(xq0_14[11..11], 18), xq0_14}
+    ppq0_0 = psq0_0 * 1073741802
+    psq0_2 = {replicate(xq0_2[11..11], 18), xq0_2} + {replicate(xq0_12[11..11], 18), xq0_12}
     ppq0_2 = psq0_2 * 417
-    psq0_4 = {replicate(xq0_4[11..11], 22), xq0_4} + {replicate(xq0_10[11..11], 22), xq0_10}
-    ppq0_4 = psq0_4 * 17179867128
-    psq0_6 = {replicate(xq0_6[11..11], 22), xq0_6} + {replicate(xq0_8[11..11], 22), xq0_8}
+    psq0_4 = {replicate(xq0_4[11..11], 18), xq0_4} + {replicate(xq0_10[11..11], 18), xq0_10}
+    ppq0_4 = psq0_4 * 1073739768
+    psq0_6 = {replicate(xq0_6[11..11], 18), xq0_6} + {replicate(xq0_8[11..11], 18), xq0_8}
     ppq0_6 = psq0_6 * 9861
-    xcq0 = {{replicate(xq0_7[11..11], 8), xq0_7}, zero16[13..0]}
+    xcq0 = {{replicate(xq0_7[11..11], 4), xq0_7}, zero16[13..0]}
     acc1q0 = ppq0_0 + ppq0_2 + ppq0_4 + ppq0_6 + xcq0
     r1q0 = acc1q0 + 16384
-    y1cq0 = if r1q0[33..27] == 0 or r1q0[33..27] == 127 do r1q0[27..15] else (if r1q0[33..33] == 1 do 4096 else 4095 end) end
-    psi1_0 = {replicate(xi1_0[11..11], 22), xi1_0} + {replicate(xi1_14[11..11], 22), xi1_14}
-    ppi1_0 = psi1_0 * 17179869162
-    psi1_2 = {replicate(xi1_2[11..11], 22), xi1_2} + {replicate(xi1_12[11..11], 22), xi1_12}
+    y1cq0 = if r1q0[29..27] == 0 or r1q0[29..27] == 7 do r1q0[27..15] else (if r1q0[29..29] == 1 do 4096 else 4095 end) end
+    psi1_0 = {replicate(xi1_0[11..11], 18), xi1_0} + {replicate(xi1_14[11..11], 18), xi1_14}
+    ppi1_0 = psi1_0 * 1073741802
+    psi1_2 = {replicate(xi1_2[11..11], 18), xi1_2} + {replicate(xi1_12[11..11], 18), xi1_12}
     ppi1_2 = psi1_2 * 417
-    psi1_4 = {replicate(xi1_4[11..11], 22), xi1_4} + {replicate(xi1_10[11..11], 22), xi1_10}
-    ppi1_4 = psi1_4 * 17179867128
-    psi1_6 = {replicate(xi1_6[11..11], 22), xi1_6} + {replicate(xi1_8[11..11], 22), xi1_8}
+    psi1_4 = {replicate(xi1_4[11..11], 18), xi1_4} + {replicate(xi1_10[11..11], 18), xi1_10}
+    ppi1_4 = psi1_4 * 1073739768
+    psi1_6 = {replicate(xi1_6[11..11], 18), xi1_6} + {replicate(xi1_8[11..11], 18), xi1_8}
     ppi1_6 = psi1_6 * 9861
-    xci1 = {{replicate(xi1_7[11..11], 8), xi1_7}, zero16[13..0]}
+    xci1 = {{replicate(xi1_7[11..11], 4), xi1_7}, zero16[13..0]}
     acc1i1 = ppi1_0 + ppi1_2 + ppi1_4 + ppi1_6 + xci1
     r1i1 = acc1i1 + 16384
-    y1ci1 = if r1i1[33..27] == 0 or r1i1[33..27] == 127 do r1i1[27..15] else (if r1i1[33..33] == 1 do 4096 else 4095 end) end
-    psq1_0 = {replicate(xq1_0[11..11], 22), xq1_0} + {replicate(xq1_14[11..11], 22), xq1_14}
-    ppq1_0 = psq1_0 * 17179869162
-    psq1_2 = {replicate(xq1_2[11..11], 22), xq1_2} + {replicate(xq1_12[11..11], 22), xq1_12}
+    y1ci1 = if r1i1[29..27] == 0 or r1i1[29..27] == 7 do r1i1[27..15] else (if r1i1[29..29] == 1 do 4096 else 4095 end) end
+    psq1_0 = {replicate(xq1_0[11..11], 18), xq1_0} + {replicate(xq1_14[11..11], 18), xq1_14}
+    ppq1_0 = psq1_0 * 1073741802
+    psq1_2 = {replicate(xq1_2[11..11], 18), xq1_2} + {replicate(xq1_12[11..11], 18), xq1_12}
     ppq1_2 = psq1_2 * 417
-    psq1_4 = {replicate(xq1_4[11..11], 22), xq1_4} + {replicate(xq1_10[11..11], 22), xq1_10}
-    ppq1_4 = psq1_4 * 17179867128
-    psq1_6 = {replicate(xq1_6[11..11], 22), xq1_6} + {replicate(xq1_8[11..11], 22), xq1_8}
+    psq1_4 = {replicate(xq1_4[11..11], 18), xq1_4} + {replicate(xq1_10[11..11], 18), xq1_10}
+    ppq1_4 = psq1_4 * 1073739768
+    psq1_6 = {replicate(xq1_6[11..11], 18), xq1_6} + {replicate(xq1_8[11..11], 18), xq1_8}
     ppq1_6 = psq1_6 * 9861
-    xcq1 = {{replicate(xq1_7[11..11], 8), xq1_7}, zero16[13..0]}
+    xcq1 = {{replicate(xq1_7[11..11], 4), xq1_7}, zero16[13..0]}
     acc1q1 = ppq1_0 + ppq1_2 + ppq1_4 + ppq1_6 + xcq1
     r1q1 = acc1q1 + 16384
-    y1cq1 = if r1q1[33..27] == 0 or r1q1[33..27] == 127 do r1q1[27..15] else (if r1q1[33..33] == 1 do 4096 else 4095 end) end
+    y1cq1 = if r1q1[29..27] == 0 or r1q1[29..27] == 7 do r1q1[27..15] else (if r1q1[29..29] == 1 do 4096 else 4095 end) end
 
     ka = 0
     kb = 0
@@ -335,25 +353,41 @@ defmodule MimoHalow.Hw.Rx.Decim4 do
     dai0 = rai0[aa]
     dbi0 = rbi0[ab]
     prei0 = if dj == 15 do {replicate(dai0[12..12], 1), dai0} else {replicate(dai0[12..12], 1), dai0} + {replicate(dbi0[12..12], 1), dbi0} end
-    prodi0 = {replicate(prei0[13..13], 26), prei0} * {replicate(dcf[17..17], 22), dcf}
+    pui0 = prei0 * dcf
+    pkai0 = if prei0[13..13] == 1 do {dcf, zero16[13..0]} else 0 end
+    pkbi0 = if dcf[17..17] == 1 do {prei0, zero16, zero16[1..0]} else 0 end
+    ps2i0 = pui0 - pkai0 - pkbi0
+    prodi0 = {replicate(ps2i0[31..31], 8), ps2i0}
     r2i0 = acc2i0 + 65536
     y2ci0 = if r2i0[39..28] == 0 or r2i0[39..28] == 4095 do r2i0[28..17] else (if r2i0[39..39] == 1 do 2048 else 2047 end) end
     daq0 = raq0[aa]
     dbq0 = rbq0[ab]
     preq0 = if dj == 15 do {replicate(daq0[12..12], 1), daq0} else {replicate(daq0[12..12], 1), daq0} + {replicate(dbq0[12..12], 1), dbq0} end
-    prodq0 = {replicate(preq0[13..13], 26), preq0} * {replicate(dcf[17..17], 22), dcf}
+    puq0 = preq0 * dcf
+    pkaq0 = if preq0[13..13] == 1 do {dcf, zero16[13..0]} else 0 end
+    pkbq0 = if dcf[17..17] == 1 do {preq0, zero16, zero16[1..0]} else 0 end
+    ps2q0 = puq0 - pkaq0 - pkbq0
+    prodq0 = {replicate(ps2q0[31..31], 8), ps2q0}
     r2q0 = acc2q0 + 65536
     y2cq0 = if r2q0[39..28] == 0 or r2q0[39..28] == 4095 do r2q0[28..17] else (if r2q0[39..39] == 1 do 2048 else 2047 end) end
     dai1 = rai1[aa]
     dbi1 = rbi1[ab]
     prei1 = if dj == 15 do {replicate(dai1[12..12], 1), dai1} else {replicate(dai1[12..12], 1), dai1} + {replicate(dbi1[12..12], 1), dbi1} end
-    prodi1 = {replicate(prei1[13..13], 26), prei1} * {replicate(dcf[17..17], 22), dcf}
+    pui1 = prei1 * dcf
+    pkai1 = if prei1[13..13] == 1 do {dcf, zero16[13..0]} else 0 end
+    pkbi1 = if dcf[17..17] == 1 do {prei1, zero16, zero16[1..0]} else 0 end
+    ps2i1 = pui1 - pkai1 - pkbi1
+    prodi1 = {replicate(ps2i1[31..31], 8), ps2i1}
     r2i1 = acc2i1 + 65536
     y2ci1 = if r2i1[39..28] == 0 or r2i1[39..28] == 4095 do r2i1[28..17] else (if r2i1[39..39] == 1 do 2048 else 2047 end) end
     daq1 = raq1[aa]
     dbq1 = rbq1[ab]
     preq1 = if dj == 15 do {replicate(daq1[12..12], 1), daq1} else {replicate(daq1[12..12], 1), daq1} + {replicate(dbq1[12..12], 1), dbq1} end
-    prodq1 = {replicate(preq1[13..13], 26), preq1} * {replicate(dcf[17..17], 22), dcf}
+    puq1 = preq1 * dcf
+    pkaq1 = if preq1[13..13] == 1 do {dcf, zero16[13..0]} else 0 end
+    pkbq1 = if dcf[17..17] == 1 do {preq1, zero16, zero16[1..0]} else 0 end
+    ps2q1 = puq1 - pkaq1 - pkbq1
+    prodq1 = {replicate(ps2q1[31..31], 8), ps2q1}
     r2q1 = acc2q1 + 65536
     y2cq1 = if r2q1[39..28] == 0 or r2q1[39..28] == 4095 do r2q1[28..17] else (if r2q1[39..39] == 1 do 2048 else 2047 end) end
 
