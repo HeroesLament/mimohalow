@@ -11,7 +11,8 @@ defmodule MimoHalow.RNS.Interface do
   Reuses running `MimoHalow.Rx` / `MimoHalow.Tx` processes when present,
   otherwise starts them linked. Params (string keys, as RNS config):
   "mcs", "atten_db", "lo_hz", "jitter_ms", "name", "fabric" (TX through the
-  PHY's transmitter, `MimoHalow.Tx` `fabric: true`).
+  PHY's transmitter, `MimoHalow.Tx` `fabric: true`), "ensm_pins" (defaults to
+  "fabric").
   """
   use GenServer, restart: :permanent
   require Logger
@@ -23,7 +24,7 @@ defmodule MimoHalow.RNS.Interface do
   def stats, do: GenServer.call(__MODULE__, :stats)
 
   def interface_spec do
-    RNS.InterfaceSpec.new("MimoHalow", __MODULE__, [], ["mcs", "atten_db", "lo_hz", "jitter_ms", "name", "fabric"])
+    RNS.InterfaceSpec.new("MimoHalow", __MODULE__, [], ["mcs", "atten_db", "lo_hz", "jitter_ms", "name", "fabric", "ensm_pins"])
   end
 
   @impl true
@@ -32,6 +33,7 @@ defmodule MimoHalow.RNS.Interface do
 
     unless Process.whereis(MimoHalow.Tx) do
       tx_opts = [mcs: mcs, atten_db: Map.get(params, "atten_db", 30.0), fabric: Map.get(params, "fabric", false)]
+      tx_opts = if Map.has_key?(params, "ensm_pins"), do: [{:ensm_pins, params["ensm_pins"]} | tx_opts], else: tx_opts
       tx_opts = if lo = params["lo_hz"], do: [{:lo_hz, lo} | tx_opts], else: tx_opts
       {:ok, _} = MimoHalow.Tx.start_link(tx_opts)
     end

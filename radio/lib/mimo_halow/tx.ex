@@ -14,6 +14,11 @@ defmodule MimoHalow.Tx do
   samples (`MimoHalow.FabricTx`, CTRL1[14] claimed at start). No PPDU build
   or ring write here: the CTRL3 commands go out once the ENSM is in TX
   (`Nervezynq.TxLoop.phy_key/2`). TX1 only.
+
+  `ensm_pins: true` (the default with `fabric`): the ENSM runs under pin
+  control (`TxLoop.pin_mode/1`, CTRL1 ENABLE / TXNRX), so keying is three
+  CTRL1 writes each way instead of ~90 ms of SPI (`TxLoop.pin_key/3`). The
+  one-time TX setup and the attenuation happen at start, before pin control.
   """
   use GenServer
   alias MimoHalow.{FabricTx, Halowave}
@@ -39,6 +44,7 @@ defmodule MimoHalow.Tx do
       guard: Keyword.get(opts, :guard_ms, 2),
       ant: Keyword.get(opts, :ant, :tx1),
       fabric: Keyword.get(opts, :fabric, false),
+      pins: Keyword.get(opts, :ensm_pins, Keyword.get(opts, :fabric, false)),
       bus: Keyword.get(opts, :bus, MimoHalow.Bus.Nervezynq),
       prev: 0,
       setup_done: false,
@@ -50,7 +56,23 @@ defmodule MimoHalow.Tx do
     if st.fabric do
       true = FabricTx.available?(st.bus) || {:error, :no_fabric_tx}
       :ok = FabricTx.claim(st.bus, true)
-    else
+    end
+
+    st =
+      if st.fabric and st.pins do
+        # Out of pin control first (a restart finds the board in it), then
+        # dma_key's one-time setup (TX data delay, BIST and loopback off) with
+        # the PHY on the port, the attenuation once, then pin control.
+        {:ok, _} = @loop.pin_mode(false)
+        {:ok, _} = @loop.dma_key(1, atten_db: st.atten, setup: true)
+        {:ok, _} = @tone.set_tx_atten(st.atten)
+        {:ok, %{state: :rx}} = @loop.pin_mode(true)
+        %{st | setup_done: true}
+      else
+        st
+      end
+
+    if not st.fabric do
       # Clean ring once: zero lead + any stale image.
       @loop.dma_stop()
       :ok = @loop.dma_write(:binary.copy(<<0>>, 8 * @ring_frames), 0)
@@ -83,8 +105,18 @@ defmodule MimoHalow.Tx do
       end
 
       t1 = System.monotonic_time(:microsecond)
-      {:ok, k} = @loop.phy_key(fn -> FabricTx.start(st.bus, ws, 20) end, ms)
-      {:ok, _} = @sdr.enable(:rx)
+      start = fn -> FabricTx.start(st.bus, ws, 20) end
+
+      k =
+        if st.pins do
+          {:ok, k} = @loop.pin_key(start, ms)
+          Map.put(k, :key, {:ok, :pins})
+        else
+          {:ok, k} = @loop.phy_key(start, ms)
+          {:ok, _} = @sdr.enable(:rx)
+          k
+        end
+
       t2 = System.monotonic_time(:microsecond)
       ok? = match?({:ok, _}, k.key) and k.fun == :ok
       res = %{mcs: mcs, frames: nfr, burst_ms: ms, gen_us: t1 - t0, air_us: t2 - t1, key: k.key, start: k.fun}
