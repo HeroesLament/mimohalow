@@ -75,4 +75,15 @@ fn frames_wire_nif<'a>(env: Env<'a>, psdu: Binary<'a>, mcs: u8, ant: Atom) -> Ni
     }
 }
 
+/// CTRL3 command words for the PHY's fabric transmitter (`halowave::fabric`).
+/// -> {:ok, [word]} | {:error, reason}
+#[rustler::nif]
+fn fabric_cmds_nif<'a>(env: Env<'a>, psdu: Binary<'a>, mcs: u8) -> NifResult<Term<'a>> {
+    let o = TxOpts { mcs, ..TxOpts::default() };
+    match halowave::fabric::commands(psdu.as_slice(), &o) {
+        Ok(w) => Ok((atoms::ok(), w).encode(env)),
+        Err(e) => Ok((atoms::error(), e.to_string()).encode(env)),
+    }
+}
+
 rustler::init!("Elixir.MimoHalow.Halowave");

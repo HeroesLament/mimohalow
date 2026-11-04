@@ -19,6 +19,9 @@ defmodule MimoHalow.Halowave do
   @doc "frames/3 in PortWire wire order (each 32-bit word big-endian), for TxLoop.dma_write_wire/2."
   def frames_wire(psdu, mcs, ant \\ :tx1), do: frames_wire_nif(psdu, mcs, ant)
 
+  @doc "CTRL3 command words for the PHY's fabric transmitter (PhyHost, \"MHW2\" bitstreams)."
+  def fabric_cmds(psdu, mcs), do: fabric_cmds_nif(psdu, mcs)
+
   @doc "PSDU with the 802.11 CRC-32 FCS appended."
   def with_fcs(b), do: b <> <<:erlang.crc32(b)::little-32>>
 
@@ -28,4 +31,6 @@ defmodule MimoHalow.Halowave do
   def frames_nif(_, _, _), do: :erlang.nif_error(:not_loaded)
   @doc false
   def frames_wire_nif(_, _, _), do: :erlang.nif_error(:not_loaded)
+  @doc false
+  def fabric_cmds_nif(_, _), do: :erlang.nif_error(:not_loaded)
 end
