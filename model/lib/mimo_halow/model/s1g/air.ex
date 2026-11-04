@@ -41,25 +41,47 @@ defmodule MimoHalow.Model.S1g.Air do
     xs |> up2(Decim4.h2(), 17) |> up2(Decim4.h1(), 15)
   end
 
-  # Zero-stuff by 2, then filter with the half-band at a gain of 2: the even
-  # taps are zero but the centre, so the centre passes x through and the odd
-  # taps fill the stuffed slots.
+  # Zero-stuff by 2, then filter with the half-band at a gain of 2, in
+  # polyphase form. Both half-bands have an odd centre index c, so on the
+  # zero-stuffed stream an odd output i only meets the centre tap (gain
+  # 2 * 2^(q-1) / 2^q = 1): y[i] = x[(i - c) / 2]. An even output only meets
+  # the even-indexed taps, the half-band's side taps: y[2m] = sum g_k
+  # x[m - k/2]. Same terms in the same order as the direct form, without
+  # the multiplies by the stuffed zeros. Output length 2n + N - 1.
   defp up2(xs, h, q) do
-    taps =
-      h
-      |> Enum.with_index()
-      |> Enum.reject(fn {c, _} -> c == 0 end)
-      |> Enum.map(fn {c, k} -> {2.0 * c / (1 <<< q), k} end)
+    n = length(xs)
+    nt = length(h)
+    c = div(nt - 1, 2)
+    1 = rem(c, 2)
+    t = List.to_tuple(xs)
 
-    s = xs |> Enum.flat_map(&[&1, Cx.zero()]) |> List.to_tuple()
-    n = tuple_size(s)
-    last = n + length(h) - 2
+    ev =
+      for {hk, k} <- Enum.with_index(h),
+          hk != 0,
+          rem(k, 2) == 0,
+          do: {2.0 * hk / (1 <<< q), div(k, 2)}
 
-    for i <- 0..last do
-      Enum.reduce(taps, Cx.zero(), fn {c, k}, acc ->
-        j = i - k
-        if j >= 0 and j < n, do: Cx.add(acc, Cx.scale(elem(s, j), c)), else: acc
-      end)
+    d = div(c - 1, 2)
+    z = Cx.zero()
+
+    for i <- 0..(2 * n + nt - 2) do
+      m = div(i, 2)
+
+      if rem(i, 2) == 1 do
+        j = m - d
+        if j >= 0 and j < n, do: elem(t, j), else: z
+      else
+        Enum.reduce(ev, z, fn {g, k2}, {ar, ai} = acc ->
+          j = m - k2
+
+          if j >= 0 and j < n do
+            {xr, xi} = elem(t, j)
+            {ar + g * xr, ai + g * xi}
+          else
+            acc
+          end
+        end)
+      end
     end
   end
 
@@ -98,10 +120,43 @@ defmodule MimoHalow.Model.S1g.Air do
             "PPDU of #{length(frame)} frames does not fit #{copies} copies (#{slot} each)"
     end
 
-    one = frame |> Enum.map(&word/1) |> IO.iodata_to_binary()
+    one = pack(frame)
     gap = :binary.copy(<<0::64>>, slot - length(frame))
     tail = :binary.copy(<<0::64>>, @ring_frames - copies * slot)
     IO.iodata_to_binary([List.duplicate([one, gap], copies), tail])
+  end
+
+  @doc "`{tx1, tx2}` sample pairs -> ring words (u64 little-endian binary)."
+  @spec pack([{cx(), cx()}]) :: binary()
+  def pack(frames), do: frames |> Enum.map(&word/1) |> IO.iodata_to_binary()
+
+  @doc """
+  1 MB ring image for one transmission: `:lead` zero frames (default 8000),
+  one PPDU carrying `psdu`, silence to the end. The lead covers the time
+  between the DMA starting at the ring head and the transmitter keying
+  (`TxLoop.dma_burst/2` starts the DMA, then moves the ENSM to TX).
+  Returns `{image, %{lead: frames, ppdu: frames}}`; at R frames/s the PPDU
+  ends (lead + ppdu) / R after the DMA starts.
+  """
+  @spec one_shot(binary(), keyword()) ::
+          {binary(), %{lead: non_neg_integer(), ppdu: pos_integer()}}
+  def one_shot(psdu, opts \\ []) do
+    {lead, opts} = Keyword.pop(opts, :lead, 8000)
+    frame = ppdu_8m(psdu, opts)
+    n = length(frame)
+
+    if lead + n > @ring_frames do
+      raise ArgumentError, "lead #{lead} + PPDU #{n} frames exceed the ring (#{@ring_frames})"
+    end
+
+    img =
+      IO.iodata_to_binary([
+        :binary.copy(<<0::64>>, lead),
+        pack(frame),
+        :binary.copy(<<0::64>>, @ring_frames - lead - n)
+      ])
+
+    {img, %{lead: lead, ppdu: n}}
   end
 
   @doc "Ring words (u64 little-endian binary) -> `[{ch1, ch2}]` at 8 MS/s."
