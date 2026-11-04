@@ -15,6 +15,10 @@ defmodule MimoHalow.Hw.PhyHostReplayTest do
   @moduletag :iverilog
   @moduletag timeout: 3_600_000
 
+  if is_nil(System.get_env("MH_CAPTURE")) do
+    @moduletag skip: "set MH_CAPTURE to a tail_capture .etf"
+  end
+
   defp s12(v) do
     v = v &&& 0xFFF
     if v >= 0x800, do: v - 0x1000, else: v
@@ -25,7 +29,6 @@ defmodule MimoHalow.Hw.PhyHostReplayTest do
 
   test "replay a board capture through PhyHost" do
     path = System.get_env("MH_CAPTURE")
-    if is_nil(path), do: flunk("set MH_CAPTURE")
     cap = path |> File.read!() |> :erlang.binary_to_term()
     from = env_int("MH_REPLAY_FROM", 0)
     len = env_int("MH_REPLAY_LEN", length(cap.u64))
