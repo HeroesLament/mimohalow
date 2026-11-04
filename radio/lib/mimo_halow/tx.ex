@@ -8,10 +8,15 @@ defmodule MimoHalow.Tx do
 
   Options: `:mcs` (0), `:lead` (8000 frames), `:fs_khz` (ring playback rate,
   4000 at DATA_CLK 16 MHz), `:atten_db` (30.0), `:lo_hz`, `:guard_ms` (2),
-  `:ant` (`:tx1`).
+  `:ant` (`:tx1`), `:fabric` (false).
+
+  `fabric: true` ("MHW2" bitstreams): the PHY's own transmitter makes the
+  samples (`MimoHalow.FabricTx`, CTRL1[14] claimed at start). No PPDU build
+  or ring write here: the CTRL3 commands go out once the ENSM is in TX
+  (`Nervezynq.TxLoop.phy_key/2`). TX1 only.
   """
   use GenServer
-  alias MimoHalow.Halowave
+  alias MimoHalow.{FabricTx, Halowave}
 
   @ring_frames 131_072
   @loop Nervezynq.TxLoop
@@ -33,6 +38,8 @@ defmodule MimoHalow.Tx do
       atten: Keyword.get(opts, :atten_db, 30.0),
       guard: Keyword.get(opts, :guard_ms, 2),
       ant: Keyword.get(opts, :ant, :tx1),
+      fabric: Keyword.get(opts, :fabric, false),
+      bus: Keyword.get(opts, :bus, MimoHalow.Bus.Nervezynq),
       prev: 0,
       setup_done: false,
       n: %{sent: 0, errors: 0, last: nil}
@@ -40,9 +47,15 @@ defmodule MimoHalow.Tx do
 
     :ok = ok(Halowave.load())
     if lo = opts[:lo_hz], do: {:ok, _} = @tone.set_tx_lo(lo)
-    # Clean ring once: zero lead + any stale image.
-    @loop.dma_stop()
-    :ok = @loop.dma_write(:binary.copy(<<0>>, 8 * @ring_frames), 0)
+    if st.fabric do
+      true = FabricTx.available?(st.bus) || {:error, :no_fabric_tx}
+      :ok = FabricTx.claim(st.bus, true)
+    else
+      # Clean ring once: zero lead + any stale image.
+      @loop.dma_stop()
+      :ok = @loop.dma_write(:binary.copy(<<0>>, 8 * @ring_frames), 0)
+    end
+
     {:ok, st}
   end
 
@@ -53,6 +66,34 @@ defmodule MimoHalow.Tx do
 
   @impl true
   def handle_call(:stats, _, st), do: {:reply, st.n, st}
+
+  def handle_call({:send, psdu, opts}, _, %{fabric: true} = st) do
+    mcs = Keyword.get(opts, :mcs, st.mcs)
+    t0 = System.monotonic_time(:microsecond)
+
+    with {:ok, ws} <- Halowave.fabric_cmds(Halowave.with_fcs(psdu), mcs) do
+      nfr = FabricTx.frames(ws)
+      ms = div(nfr + st.fs - 1, st.fs) + st.guard
+
+      # First packet: dma_key's one-time setup (TX data delay, BIST and
+      # loopback off) with the PHY on the port, then the attenuation once.
+      unless st.setup_done do
+        {:ok, _} = @loop.dma_key(1, atten_db: st.atten, setup: true)
+        {:ok, _} = @tone.set_tx_atten(st.atten)
+      end
+
+      t1 = System.monotonic_time(:microsecond)
+      {:ok, k} = @loop.phy_key(fn -> FabricTx.start(st.bus, ws, 20) end, ms)
+      {:ok, _} = @sdr.enable(:rx)
+      t2 = System.monotonic_time(:microsecond)
+      ok? = match?({:ok, _}, k.key) and k.fun == :ok
+      res = %{mcs: mcs, frames: nfr, burst_ms: ms, gen_us: t1 - t0, air_us: t2 - t1, key: k.key, start: k.fun}
+      n = %{st.n | sent: st.n.sent + if(ok?, do: 1, else: 0), errors: st.n.errors + if(ok?, do: 0, else: 1), last: res}
+      {:reply, if(ok?, do: {:ok, res}, else: {:error, res}), %{st | n: n, setup_done: true}}
+    else
+      {:error, _} = e -> {:reply, e, %{st | n: %{st.n | errors: st.n.errors + 1}}}
+    end
+  end
 
   def handle_call({:send, psdu, opts}, _, st) do
     mcs = Keyword.get(opts, :mcs, st.mcs)

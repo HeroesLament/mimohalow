@@ -38,11 +38,22 @@ defmodule MimoHalow.FabricTx do
   `{:error, :busy}` or the NIF's `{:error, reason}`.
   """
   def send(bus, psdu, mcs, timeout_ms \\ 50) do
-    with {:ok, ws} <- Halowave.fabric_cmds(psdu, mcs),
-         :ok <- wait_idle(bus, System.monotonic_time(:millisecond) + timeout_ms) do
-      bus.write_fifo(@ctrl3, ws)
+    with {:ok, ws} <- Halowave.fabric_cmds(psdu, mcs), do: start(bus, ws, timeout_ms)
+  end
+
+  @doc "`send/4` with the command words already built (`Halowave.fabric_cmds/2`)."
+  def start(bus, words, timeout_ms \\ 50) do
+    with :ok <- wait_idle(bus, System.monotonic_time(:millisecond) + timeout_ms) do
+      bus.write_fifo(@ctrl3, words)
     end
   end
+
+  @doc """
+  TX port samples of the PPDU the command words describe (8 MS/s design rate:
+  320 preamble + 160 SIG + 80 per data symbol at the base rate, x4, + 130 from
+  the interpolator's filter tails).
+  """
+  def frames(words), do: 4 * (480 + 80 * (hd(words) &&& 0x3FF)) + 130
 
   @doc "Block until the current frame has left the TX port (or `timeout_ms`)."
   def wait_done(bus, timeout_ms \\ 50), do: wait_idle(bus, System.monotonic_time(:millisecond) + timeout_ms)
