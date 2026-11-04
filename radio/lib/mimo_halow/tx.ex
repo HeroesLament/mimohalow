@@ -58,7 +58,7 @@ defmodule MimoHalow.Tx do
     mcs = Keyword.get(opts, :mcs, st.mcs)
     t0 = System.monotonic_time(:microsecond)
 
-    with {:ok, fr} <- Halowave.frames(Halowave.with_fcs(psdu), mcs, st.ant),
+    with {:ok, fr} <- Halowave.frames_wire(Halowave.with_fcs(psdu), mcs, st.ant),
          nfr = div(byte_size(fr), 8),
          true <- st.lead + nfr < @ring_frames || {:error, :ppdu_too_long},
          ms = div(st.lead + nfr + st.fs - 1, st.fs) + st.guard,
@@ -66,14 +66,28 @@ defmodule MimoHalow.Tx do
       t1 = System.monotonic_time(:microsecond)
       @loop.dma_stop()
       tail = max(st.prev - nfr, 0)
-      :ok = @loop.dma_write(fr <> :binary.copy(<<0>>, 8 * tail), 8 * st.lead)
+      :ok = @loop.dma_write_wire(fr <> :binary.copy(<<0>>, 8 * tail), 8 * st.lead)
       t2 = System.monotonic_time(:microsecond)
 
       # Synchronous key/sleep/unkey in this process: no concurrent SPI.
+      # First packet: full dma_key (one-time setup), then set the attenuation
+      # once, since its unkey parks it at 89.75 dB. Later packets: dma_key_fast,
+      # which leaves the attenuation alone (TX is off outside ENSM TX anyway).
       r =
-        case @loop.dma_key(ms, atten_db: st.atten, setup: not st.setup_done) do
-          {:ok, %{key: {:ok, _}}} -> :ok
-          e -> e
+        if st.setup_done do
+          case @loop.dma_key_fast(ms) do
+            {:ok, %{key: {:ok, _}}} -> :ok
+            e -> e
+          end
+        else
+          case @loop.dma_key(ms, atten_db: st.atten, setup: true) do
+            {:ok, %{key: {:ok, _}}} ->
+              {:ok, _} = @tone.set_tx_atten(st.atten)
+              :ok
+
+            e ->
+              e
+          end
         end
 
       {:ok, _} = @sdr.enable(:rx)
