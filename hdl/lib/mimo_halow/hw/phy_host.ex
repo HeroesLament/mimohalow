@@ -8,11 +8,12 @@ defmodule MimoHalow.Hw.PhyHost do
   Two clocks: `axi_clk` (the AXI-Lite slave) and `data_clk` (AD936x
   DATA_CLK, 32 MHz at 8 MS/s 2R2T, where the PHY runs).
 
-      I1/Q1/I2/Q2 at 8 MS/s -> Decim4 -> Rx.Eig1 -> receive ring
+      I1/Q1/I2/Q2 at 8 MS/s -> DcBlock -> Decim4 -> Rx.Eig1 -> receive ring
 
   ## Control (`ctl`, the slave's CTRL1; bits 0..4, 8..13 belong to the top)
 
       [5]     phy_en      receiver enable
+      [6]     dc_bypass   1 = no DC blocker ahead of Decim4 (`Rx.DcBlock`)
       [14]    (top) TX port source; this PHY never claims it (`tx_sel` = 0)
       [31:26] detector energy gate: emin = code << 9
 
@@ -87,6 +88,7 @@ defmodule MimoHalow.Hw.PhyHost do
   wire :c_s1, 32, init: 0
   wire :c_s2, 32, init: 0
   wire :phy_en, 1
+  wire :dc_bypass, 1
   wire :emin, 32
   wire :wcnt, 16, init: 0
   wire :wgray, 16, init: 0
@@ -113,6 +115,11 @@ defmodule MimoHalow.Hw.PhyHost do
   wire :wd, 32
 
   # decimator -> receiver
+  wire :xv, 1
+  wire :xi0, 12
+  wire :xq0, 12
+  wire :xi1, 12
+  wire :xq1, 12
   wire :dv, 1
   wire :di0, 12
   wire :dq0, 12
@@ -161,6 +168,7 @@ defmodule MimoHalow.Hw.PhyHost do
     one1 = 1
 
     phy_en = c_s2[5..5]
+    dc_bypass = c_s2[6..6]
     emin = {zero32[16..0], c_s2[31..26], zero32[8..0]}
     tx_sel = 0
     o_valid = 0
@@ -240,8 +248,12 @@ defmodule MimoHalow.Hw.PhyHost do
     end
   end
 
+  instance :dcb, MimoHalow.Hw.Rx.DcBlock,
+    clk: :data_clk, enable: :phy_en, bypass: :dc_bypass, valid: :valid, i0: :i0, q0: :q0, i1: :i1, q1: :q1,
+    o_valid: :xv, o_i0: :xi0, o_q0: :xq0, o_i1: :xi1, o_q1: :xq1
+
   instance :dec, MimoHalow.Hw.Rx.Decim4,
-    clk: :data_clk, enable: :phy_en, valid: :valid, i0: :i0, q0: :q0, i1: :i1, q1: :q1,
+    clk: :data_clk, enable: :phy_en, valid: :xv, i0: :xi0, q0: :xq0, i1: :xi1, q1: :xq1,
     o_valid: :dv, o_i0: :di0, o_q0: :dq0, o_i1: :di1, o_q1: :dq1
 
   instance :rxp, MimoHalow.Hw.Rx.Eig1,
