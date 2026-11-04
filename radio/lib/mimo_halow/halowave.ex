@@ -1,0 +1,26 @@
+defmodule MimoHalow.Halowave do
+  @moduledoc """
+  halowave-rs NIF (radio/native/halowave_nif). Loaded explicitly with
+  `load/1` from the cross-built `.so`, not via `@on_load`, so the module
+  compiles and loads on hosts without it.
+  """
+
+  @default "/data/rns_ebin/libhalowave_nif"
+
+  @doc "Load the NIF from `path` (no `.so` suffix)."
+  def load(path \\ @default), do: :erlang.load_nif(String.to_charlist(path), 0)
+
+  @doc "1 MB TX ring image: `{:ok, image, ppdu_frames}` or `{:error, reason}`."
+  def one_shot(psdu, mcs, lead, ant \\ :tx1), do: one_shot_nif(psdu, mcs, lead, ant)
+
+  @doc "Packed PPDU frames (8 bytes each), no lead or padding."
+  def frames(psdu, mcs, ant \\ :tx1), do: frames_nif(psdu, mcs, ant)
+
+  @doc "PSDU with the 802.11 CRC-32 FCS appended."
+  def with_fcs(b), do: b <> <<:erlang.crc32(b)::little-32>>
+
+  @doc false
+  def one_shot_nif(_, _, _, _), do: :erlang.nif_error(:not_loaded)
+  @doc false
+  def frames_nif(_, _, _), do: :erlang.nif_error(:not_loaded)
+end

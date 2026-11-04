@@ -1,0 +1,4 @@
+# Board build: cargo build --release --target armv7-unknown-linux-gnueabihf
+[target.armv7-unknown-linux-gnueabihf]
+linker    = "/Users/mac.w/.nerves/artifacts/nerves_toolchain_armv7_nerves_linux_gnueabihf-darwin_arm-15.3.0/bin/armv7-nerves-linux-gnueabihf-gcc"
+rustflags = ["-C", "target-cpu=cortex-a9"]

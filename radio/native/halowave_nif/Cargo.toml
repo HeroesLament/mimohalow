@@ -1,0 +1,18 @@
+[package]
+name    = "halowave_nif"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Rustler NIF over halowave-rs for MimoHalow.Halowave"
+
+[lib]
+name       = "halowave_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler     = { version = "0.36", default-features = false, features = ["nif_version_2_15"] }
+halowave-rs = { path = "../../../../halowave-rs" }
+
+[profile.release]
+opt-level = 3
+lto       = true
