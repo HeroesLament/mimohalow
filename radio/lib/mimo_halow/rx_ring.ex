@@ -75,13 +75,11 @@ defmodule MimoHalow.RxRing do
   """
   def spans(nil, wc), do: {0, span(wc, 0)}
 
-  def spans(last, wc) when wc >= last do
-    n = wc - last
+  # The write count is 16 bits (PhyHost `wcnt`); the ring index is its low 11.
+  def spans(last, wc) do
+    n = Integer.mod(wc - last, 0x1_0000)
     if n > @ring_words, do: {n - @ring_words, span(wc, @ring_words)}, else: {0, span(wc, n)}
   end
-
-  # Write count wrapped at 32 bits.
-  def spans(last, wc), do: spans(last - 0x1_0000_0000, wc)
 
   defp span(_wc, 0), do: []
 

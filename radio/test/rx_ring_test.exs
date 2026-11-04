@@ -67,6 +67,9 @@ defmodule MimoHalow.RxRingTest do
     assert RxRing.spans(10, 20) == {0, [{10, 10}]}
     assert RxRing.spans(2040, 2050) == {0, [{2040, 8}, {0, 2}]}
     assert RxRing.spans(0, 5000) == {5000 - 2048, [{904, 1144}, {0, 904}]}
-    assert RxRing.spans(0xFFFF_FFFE, 3) == {0, [{2046, 2}, {0, 3}]}
+    # 16-bit write count wraps: 0xFFFE -> 3 is 5 new words.
+    assert RxRing.spans(0xFFFE, 3) == {0, [{2046, 2}, {0, 3}]}
+    # Across the wrap and more than a ring behind: 2064 new, 16 lost.
+    assert RxRing.spans(0xFFF0, 0x0800) == {16, [{0, 2048}]}
   end
 end
