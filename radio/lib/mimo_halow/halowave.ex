@@ -5,7 +5,7 @@ defmodule MimoHalow.Halowave do
   compiles and loads on hosts without it.
   """
 
-  @default "/data/rns_ebin/libhalowave_nif"
+  @default "/data/rns_ebin/libhalowave_nif_v2"
 
   @doc "Load the NIF from `path` (no `.so` suffix)."
   def load(path \\ @default), do: :erlang.load_nif(String.to_charlist(path), 0)
@@ -16,6 +16,9 @@ defmodule MimoHalow.Halowave do
   @doc "Packed PPDU frames (8 bytes each), no lead or padding."
   def frames(psdu, mcs, ant \\ :tx1), do: frames_nif(psdu, mcs, ant)
 
+  @doc "frames/3 in PortWire wire order (each 32-bit word big-endian), for TxLoop.dma_write_wire/2."
+  def frames_wire(psdu, mcs, ant \\ :tx1), do: frames_wire_nif(psdu, mcs, ant)
+
   @doc "PSDU with the 802.11 CRC-32 FCS appended."
   def with_fcs(b), do: b <> <<:erlang.crc32(b)::little-32>>
 
@@ -23,4 +26,6 @@ defmodule MimoHalow.Halowave do
   def one_shot_nif(_, _, _, _), do: :erlang.nif_error(:not_loaded)
   @doc false
   def frames_nif(_, _, _), do: :erlang.nif_error(:not_loaded)
+  @doc false
+  def frames_wire_nif(_, _, _), do: :erlang.nif_error(:not_loaded)
 end

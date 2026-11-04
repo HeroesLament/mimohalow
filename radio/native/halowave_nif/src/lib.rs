@@ -56,4 +56,23 @@ fn frames_nif<'a>(env: Env<'a>, psdu: Binary<'a>, mcs: u8, ant: Atom) -> NifResu
     }
 }
 
+/// frames_nif/3 in PortWire wire order: each 32-bit word big-endian (the
+/// ring's little-endian u64 frames with every 4-byte group reversed).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn frames_wire_nif<'a>(env: Env<'a>, psdu: Binary<'a>, mcs: u8, ant: Atom) -> NifResult<Term<'a>> {
+    let o = TxOpts { mcs, ..TxOpts::default() };
+    match ppdu_8m(psdu.as_slice(), &o, antennas(ant)?) {
+        Ok(f) => {
+            let mut v = Vec::new();
+            pack_into(&mut v, &f);
+            for w in v.chunks_exact_mut(4) {
+                w.reverse();
+            }
+            let b = owned(&v)?.release(env);
+            Ok((atoms::ok(), b).encode(env))
+        }
+        Err(e) => Ok((atoms::error(), e.to_string()).encode(env)),
+    }
+}
+
 rustler::init!("Elixir.MimoHalow.Halowave");
