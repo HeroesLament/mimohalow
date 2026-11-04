@@ -28,15 +28,19 @@ defmodule MimoHalow.Designs.LibreSDR.Top do
   `MimoHalow.Hw.PhyHost`: the 2x2 S1G 2 MHz eig1 receiver (Decim4 ->
   Rx.Eig1 -> receive ring) fed by both chains of the packer word, I1/Q1 =
   word[23:0], I2/Q2 = word[47:24]. The AD9363 runs 2R2T at 8 MS/s
-  (DATA_CLK 32 MHz). Transmit is PS-built per-antenna samples over the TX
-  DMA ring (`tx_sel` = 0 from this PHY). The rest of the radio design (SPI,
-  LVDS RX, capture, RX/TX DMA, TX port) is unchanged. PHY host contract
-  (see `MimoHalow.Hw.PhyHost`):
+  (DATA_CLK 32 MHz). Transmit is either the PHY's own `Tx.TxPhy` (CTRL1[14]
+  = 1: PSDU and parameters written as CTRL3 commands, samples on I1/Q1, I2/Q2
+  zero) or PS-built per-antenna samples over the TX DMA ring (CTRL1[14] =
+  0). The rest of the radio design (SPI, LVDS RX, capture, RX/TX DMA, TX
+  port) is unchanged. PHY host contract (see `MimoHalow.Hw.PhyHost`):
 
       CTRL1   [5]     phy_en (also runs the RX packer)
+              [14]    TX port source: 1 = PHY transmitter
               [31:26] detector energy gate: emin = code << 9
-      0x10000 + 4*n   memory window: n = 0 "MHW1", 1 ring write count,
+      CTRL3           transmit commands ([31:28] opcode, see PhyHost)
+      0x10000 + 4*n   memory window: n = 0 "MHW2", 1 ring write count,
                       2 {sync, drop}, 3 {det_count, early, v_overflow, overrun},
+                      4 {preempt, tx_underruns, tx_frames, tx_busy},
                       2048 + (k mod 2048) RX ring entry k
 
   ## Register map (via `Hw.AXI4Lite.Slave`)

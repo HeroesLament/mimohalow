@@ -1,29 +1,47 @@
 defmodule MimoHalow.Hw.PhyHost do
   @moduledoc """
-  PS-facing wrapper of the mimohalow receive PHY for the LibreSDR board top,
-  in the slot OpenOcuSync's `Hw.PhyHost` occupies (same clocks, control
-  word, memory window shape). Receive only for now: transmit stays on the
-  board top's TX DMA ring path (`tx_sel = 0`), with PS-built samples.
+  PS-facing wrapper of the mimohalow PHY for the LibreSDR board top, in the
+  slot OpenOcuSync's `Hw.PhyHost` occupies (same clocks, control word,
+  memory window shape). Receive always; transmit through `Tx.TxPhy` when
+  CTRL1[14] gives it the TX port (else the top's TX DMA ring path, with
+  PS-built samples).
 
   Two clocks: `axi_clk` (the AXI-Lite slave) and `data_clk` (AD936x
   DATA_CLK, 32 MHz at 8 MS/s 2R2T, where the PHY runs).
 
       I1/Q1/I2/Q2 at 8 MS/s -> DcBlock -> Decim4 -> Rx.Eig1 -> receive ring
+      CTRL3 words -> TX buffer + params -> Tx.TxPhy -> TX port (I1/Q1)
 
   ## Control (`ctl`, the slave's CTRL1; bits 0..4, 8..13 belong to the top)
 
       [5]     phy_en      receiver enable
       [6]     dc_bypass   1 = no DC blocker ahead of Decim4 (`Rx.DcBlock`)
-      [14]    (top) TX port source; this PHY never claims it (`tx_sel` = 0)
+      [14]    TX port source: 1 = this PHY (`tx_sel`), 0 = the top's paths
       [31:26] detector energy gate: emin = code << 9
+
+  ## Transmit commands (CTRL3 writes; [31:28] opcode)
+
+      1  buffer word: [23:0] = PSDU bytes 3w..3w+2 ([7:0] first) at the
+         buffer write pointer w, which then advances (1024 words)
+      2  SIG chunk: [25:24] k, [23:0] -> sig[24k + 23 : 24k] (96 interleaved
+         SIG coded bits as `Tx.Ofdm`)
+      3  [9:0] nsym, [16:10] scrambler seed, [19:17] mod, [21:20] rate
+      4  [15:0] nbits (nsym * Ndbps), [25:16] len (PSDU bytes, FCS included)
+      5  start the frame; buffer write pointer -> 0
+      6  buffer write pointer -> 0
+
+  Buffer, SIG and parameters are sampled while the frame runs: write the
+  next frame only once `tx_busy` (word 4 bit 0) is clear. The AD9363 keying
+  and CTRL1[14] stay with the PS.
 
   ## Memory window (word index of `mem_raddr`)
 
-      0      "MHW1"
+      0      "MHW2"
       1      [15:0] receive ring write count (entries ever written)
       2      {sync_count, drop_count}
       3      {det_count, 13'b0, early, v_overflow, overrun != 0}
-      4      {preempt_count, 16'b0}   syncs that re-armed the feeders
+      4      {preempt_count, tx_underruns[7:0], tx_frames[6:0], tx_busy}
+             preempt: syncs that re-armed the feeders; underruns saturate
       2048.. receive ring, 2048 entries: entry n at 2048 + (n mod 2048)
 
   Ring entries (data_clk order):
@@ -65,6 +83,7 @@ defmodule MimoHalow.Hw.PhyHost do
   output :sync_count, 16
 
   memory :rxr, width: 32, depth: 2048, sync_read: :axi_clk
+  memory :txb, width: 24, depth: 1024, sync_read: :data_clk
 
   wire :zero32, 32
   wire :one1, 1
@@ -83,6 +102,37 @@ defmodule MimoHalow.Hw.PhyHost do
   wire :gb3, 16
   wire :st_c, 32
   wire :ring_q, 32
+
+  # ---- transmit, axi_clk side ---------------------------------------------
+  wire :t_wp, 10, init: 0
+  wire :t_sig, 96, init: 0
+  wire :t_par, 22, init: 0
+  wire :t_len, 26, init: 0
+  wire :t_go, 1, init: 0
+  wire :t_op, 4
+  wire :t_par_nsym, 10
+  wire :t_par_seed, 7
+  wire :t_par_mod, 3
+  wire :t_par_rate, 2
+  wire :t_len_nbits, 16
+  wire :t_len_len, 10
+
+  # ---- transmit, data_clk side --------------------------------------------
+  wire :x_go, 1
+  wire :g_s1, 1, init: 0
+  wire :g_s2, 1, init: 0
+  wire :g_s3, 1, init: 0
+  wire :t_start, 1
+  wire :t_baddr, 10
+  wire :t_bdata, 24
+  wire :t_ov, 1
+  wire :t_oi, 12
+  wire :t_oq, 12
+  wire :t_busy, 1
+  wire :t_done, 1
+  wire :t_under, 1
+  wire :t_cnt, 7, init: 0
+  wire :t_und, 8, init: 0
 
   # ---- data_clk side ------------------------------------------------------
   wire :c_s1, 32, init: 0
@@ -170,11 +220,22 @@ defmodule MimoHalow.Hw.PhyHost do
     phy_en = c_s2[5..5]
     dc_bypass = c_s2[6..6]
     emin = {zero32[16..0], c_s2[31..26], zero32[8..0]}
-    tx_sel = 0
-    o_valid = 0
-    o_i = 0
-    o_q = 0
-    tx_busy = 0
+    tx_sel = ctl[14..14]
+    o_valid = t_ov
+    o_i = t_oi
+    o_q = t_oq
+    tx_busy = t_busy
+
+    t_op = ctrl3[31..28]
+    t_par_nsym = t_par[9..0]
+    t_par_seed = t_par[16..10]
+    t_par_mod = t_par[19..17]
+    t_par_rate = t_par[21..20]
+    t_len_nbits = t_len[15..0]
+    t_len_len = t_len[25..16]
+    x_go = t_go
+    t_start = bxor(g_s2, g_s3)
+    t_bdata = txb[t_baddr]
     detect = r_detect
     sync_count = r_sync_count
 
@@ -196,8 +257,8 @@ defmodule MimoHalow.Hw.PhyHost do
     gb3 = bxor(gb2, {zero32[3..0], gb2[15..4]})
     wbin = bxor(gb3, {zero32[7..0], gb3[15..8]})
 
-    # "MHW1" = 0x4D485731
-    st_c = if mem_raddr[3..0] == 1 do {zero32[15..0], wbin} else (if mem_raddr[3..0] == 2 do mon0_a else (if mem_raddr[3..0] == 3 do mon1_a else (if mem_raddr[3..0] == 4 do mon2_a else 1296586545 end) end) end) end
+    # "MHW2" = 0x4D485732
+    st_c = if mem_raddr[3..0] == 1 do {zero32[15..0], wbin} else (if mem_raddr[3..0] == 2 do mon0_a else (if mem_raddr[3..0] == 3 do mon1_a else (if mem_raddr[3..0] == 4 do mon2_a else 1296586546 end) end) end) end
     ring_q = rxr[mem_raddr[10..0]]
     mem_rdata = if sel_q == 1 do ring_q else st_q end
 
@@ -215,6 +276,38 @@ defmodule MimoHalow.Hw.PhyHost do
     mon2_a = x_m2
     st_q = st_c
     sel_q = mem_raddr[11..11]
+
+    if ctrl3_wr == 1 do
+      case t_op do
+        1 ->
+          txb[t_wp] = ctrl3[23..0]
+          t_wp = t_wp + 1
+
+        2 ->
+          case ctrl3[25..24] do
+            0 -> t_sig = {t_sig[95..24], ctrl3[23..0]}
+            1 -> t_sig = {t_sig[95..48], ctrl3[23..0], t_sig[23..0]}
+            2 -> t_sig = {t_sig[95..72], ctrl3[23..0], t_sig[47..0]}
+            _ -> t_sig = {ctrl3[23..0], t_sig[71..0]}
+          end
+
+        3 ->
+          t_par = ctrl3[21..0]
+
+        4 ->
+          t_len = ctrl3[25..0]
+
+        5 ->
+          t_go = bnot(t_go)
+          t_wp = 0
+
+        6 ->
+          t_wp = 0
+
+        _ ->
+          t_wp = t_wp
+      end
+    end
   end
 
   on :data_clk do
@@ -222,7 +315,17 @@ defmodule MimoHalow.Hw.PhyHost do
     c_s2 = c_s1
     mon0 = {r_sync_count, r_drop_count}
     mon1 = {r_det_count, zero32[12..0], f_early, r_v_overflow, f_ovr}
-    mon2 = {r_preempt, zero32[15..0]}
+    mon2 = {r_preempt, t_und, t_cnt, t_busy}
+
+    g_s1 = x_go
+    g_s2 = g_s1
+    g_s3 = g_s2
+    if t_done == 1 do
+      t_cnt = t_cnt + 1
+    end
+    if t_under == 1 and t_und != 255 do
+      t_und = t_und + 1
+    end
 
     # A SIG entry waits for a cycle without a byte entry.
     if r_sig_done == 1 do
@@ -266,4 +369,10 @@ defmodule MimoHalow.Hw.PhyHost do
     sig_bits: :r_sig_bits, f_mcs: :r_f_mcs, f_length: :r_f_length, f_aggr: :r_f_aggr, f_ndata: :r_f_ndata,
     b_valid: :r_b_valid, b_byte: :r_b_byte, b_last: :r_b_last, b_len: :r_b_len,
     v_overflow: :r_v_overflow, d_early: :r_d_early
+
+  instance :txp, MimoHalow.Hw.Tx.TxPhy,
+    clk: :data_clk, start: :t_start, seed: :t_par_seed, rate: :t_par_rate, mod: :t_par_mod, nsym: :t_par_nsym,
+    nbits: :t_len_nbits, len: :t_len_len, sig: :t_sig, b_data: :t_bdata, tick: :tick,
+    b_addr: :t_baddr, o_valid: :t_ov, o_i: :t_oi, o_q: :t_oq, busy: :t_busy, done: :t_done, under: :t_under
 end
+

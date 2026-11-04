@@ -13,8 +13,10 @@ defmodule MimoHalow.Hw.Tx.HbUp do
   (j = t and t + ha), one multiply each: ceil(H / 2) + 6 cycles per input for
   H = N / 2 unique taps. History in four duplicated LUTRAMs (four reads per
   cycle); a 4-entry output FIFO lets the next input's MAC overlap the drain.
-  16-bit samples in and out, saturated; products are magnitude x magnitude
-  with the sign applied after (the Fft64 idiom).
+  `start` zeroes the history (32 cycles, `i_ready` low) so each frame
+  starts from rest like the model. 16-bit samples in and out, saturated;
+  products are magnitude x magnitude with the sign applied after (the Fft64
+  idiom).
   """
 
   def taps(:hb2), do: MimoHalow.Model.Fixed.Decim4.h2()
@@ -75,6 +77,11 @@ defmodule MimoHalow.Hw.Tx.HbUp do
       memory(:cb, width: 18, depth: 16, sync_read: :clk, init: unquote(rom))
 
       wire(:wp, 5, init: 0)
+      wire(:cl, 5, init: 0)
+      wire(:wa, 5)
+      wire(:wd, 32)
+      wire(:wen, 1)
+      wire(:z32, 32)
       wire(:st, 3, init: 0)
       wire(:t, 4, init: 0)
       wire(:fl, 6, init: 0)
@@ -159,6 +166,29 @@ defmodule MimoHalow.Hw.Tx.HbUp do
 
       comb do
         zero1 = 0
+        z32 = 0
+
+        # One history write port: zeroing after start (st 4), else inputs.
+        wen =
+          if st == 4 or (st == 0 and room2 == 1 and done == 0 and (flushing == 1 or i_valid == 1)) do
+            1
+          else
+            0
+          end
+
+        wa =
+          if st == 4 do
+            cl
+          else
+            wp + 1
+          end
+
+        wd =
+          if st == 4 do
+            z32
+          else
+            {xi, xq}
+          end
 
         xi =
           if flushing == 1 do
@@ -372,7 +402,8 @@ defmodule MimoHalow.Hw.Tx.HbUp do
       on :clk do
         if start == 1 do
           wp = 0
-          st = 0
+          cl = 0
+          st = 4
           t = 0
           fl = 0
           flushing = 0
@@ -392,10 +423,6 @@ defmodule MimoHalow.Hw.Tx.HbUp do
             0 ->
               # Accept an input (or a flush zero) when two FIFO slots are free.
               if room2 == 1 and done == 0 and (flushing == 1 or i_valid == 1) do
-                x0[wp + 1] = {xi, xq}
-                x1[wp + 1] = {xi, xq}
-                x2[wp + 1] = {xi, xq}
-                x3[wp + 1] = {xi, xq}
                 wp = wp + 1
                 acci = 0
                 accq = 0
@@ -438,8 +465,23 @@ defmodule MimoHalow.Hw.Tx.HbUp do
                 st = 0
               end
 
+            4 ->
+              # Zero the history so a frame never sees the last one's tail.
+              cl = cl + 1
+
+              if cl == 31 do
+                st = 0
+              end
+
             _ ->
               st = 0
+          end
+
+          if wen == 1 do
+            x0[wa] = wd
+            x1[wa] = wd
+            x2[wa] = wd
+            x3[wa] = wd
           end
 
           # MAC pipeline. Stage 1: latch pre-adds and coefficients.
